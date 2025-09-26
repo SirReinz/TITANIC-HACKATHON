@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barrel Dodger - Vanilla JS</title>
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Prevents unwanted text selection while dragging */
+        body {
+            user-select: none;
+        }
+        /* Custom style for the modal to be hidden by default */
+        #modal {
+            display: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-900 text-white p-4 flex items-center justify-center">
+
+    <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-3xl">
+        
+        <!-- Header -->
+        <h1 class="text-4xl font-bold text-center mb-4 text-yellow-400">BARREL DODGER</h1>
+        <p id="game-message" class="text-center mb-6 text-lg">Click Start to begin!</p>
+
+        <!-- Controls -->
+        <div class="bg-gray-700 p-4 rounded mb-6 flex flex-wrap justify-center items-center gap-4">
+            <div class="flex items-center gap-2">
+                <label class="font-bold">Barrels:</label>
+                <input id="barrel-count-input" type="number" value="10" class="w-16 px-2 py-1 bg-gray-600 text-white rounded text-center" min="1" max="50">
+            </div>
+            <button id="start-button" class="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded font-bold">
+                START GAME
+            </button>
+        </div>
+
+        <!-- Game Area -->
+        <div id="game-area" class="relative h-72 bg-blue-900 border-4 border-yellow-400 rounded mb-4 overflow-hidden cursor-crosshair" style="touch-action: none;">
+            <!-- Player will be inserted here by JavaScript -->
+        </div>
+
+        <!-- Stats -->
+        <div class="flex justify-between items-center text-xl font-bold">
+            <div id="score-display" class="bg-green-600 px-4 py-2 rounded">Score: 0</div>
+            <div id="round-display" class="bg-purple-600 px-4 py-2 rounded">Round: 1</div>
+        </div>
+
+        <!-- Modal -->
+        <div id="modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-gray-800 p-8 rounded-lg text-center border-2 border-gray-600">
+                <h3 id="modal-message" class="text-2xl font-bold mb-4"></h3>
+                <button id="next-round-button" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded font-bold text-lg">
+                    NEXT ROUND
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Link to the JavaScript file -->
+    <script src="script.js"></script>
+</body>
+</html>

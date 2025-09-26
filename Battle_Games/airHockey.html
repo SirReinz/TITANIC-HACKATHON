@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Clash: Air Hockey</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter&family=Space+Grotesk:wght@700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F5F5F5;
+            color: #111827;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            color: #29ABE2; /* Vibrant Blue */
+            margin-top: 0;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 4px solid #29ABE2;
+            border-radius: 8px;
+            margin-top: 1rem;
+            cursor: none; /* Hide cursor over the game board */
+        }
+        .scores {
+            display: flex;
+            justify-content: space-around;
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .player-score { color: #29ABE2; } /* Player is Blue */
+        .ai-score { color: #FF8C00; } /* AI is Orange */
+        .instructions {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Air Hockey Battle</h1>
+        <div class="scores">
+            <div>AI: <span id="player1Score" class="ai-score">0</span></div>
+            <div>You: <span id="player2Score" class="player-score">0</span></div>
+        </div>
+        <canvas id="hockeyCanvas" width="500" height="650"></canvas>
+        <div class="instructions">
+            <p>Play against the AI using your mouse.</p>
+            <p>First to 7 points wins!</p>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('hockeyCanvas');
+            if (!canvas) return;
+            const context = canvas.getContext('2d');
+            if (!context) return;
+
+            const player1ScoreElem = document.getElementById('player1Score');
+            const player2ScoreElem = document.getElementById('player2Score');
+
+            const winningScore = 7;
+            let gameOver = false;
+
+            // Game constants
+            const malletRadius = 25;
+            const puckRadius = 15;
+            const goalWidth = 150;
+            const goalDepth = 15;
+            const friction = 0.995;
+            const malletSpeed = 8;
+
+            // Game objects
+            const player1 = { // AI
+                x: canvas.width / 2,
+                y: canvas.height * 0.75,
+                radius: malletRadius,
+                score: 0,
+                color: '#FF8C00' // Accent Orange
+            };
+
+            const player2 = { // Human
+                x: canvas.width / 2,
+                y: canvas.height * 0.25,
+                radius: malletRadius,
+                score: 0,
+                color: '#29ABE2' // Primary Blue
+            };
+
+            const puck = {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                dx: 0,
+                dy: 0,
+                radius: puckRadius,
+                color: '#111827'
+            };
+
+            // --- CONTROLS ---
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                // Player 2 (human) movement, restricted to their half
+                player2.x = Math.max(player2.radius, Math.min(mouseX, canvas.width - player2.radius));
+                player2.y = Math.max(player2.radius, Math.min(mouseY, canvas.height / 2 - player2.radius));
+            });
+
+            // --- GAME LOGIC ---
+            function resetPuck(direction) {
+                puck.x = canvas.width / 2;
+                puck.y = canvas.height / 2;
+                puck.dx = 0;
+                puck.dy = 5 * direction; // Send towards the player who was scored on
+            }
+
+            function update() {
+                if (gameOver) return;
+
+                // AI for Player 1 (bottom)
+                const aiSpeed = malletSpeed * 0.7; // Make AI a bit slower
+                // Defensive position when puck is on player's side
+                if (puck.y < canvas.height / 2) {
+                    if (player1.x < canvas.width / 2 - 10) player1.x += aiSpeed;
+                    if (player1.x > canvas.width / 2 + 10) player1.x -= aiSpeed;
+                } else { // Chase the puck on its side
+                    if (player1.x < puck.x) player1.x += aiSpeed;
+                    if (player1.x > puck.x) player1.x -= aiSpeed;
+                }
+                // Always try to stay in a good y-position
+                if (player1.y < canvas.height * 0.75) player1.y += aiSpeed;
+                if (player1.y > canvas.height * 0.75) player1.y -= aiSpeed;
+
+                // Restrict Player 1 to their half
+                player1.x = Math.max(player1.radius, Math.min(player1.x, canvas.width - player1.radius));
+                player1.y = Math.max(canvas.height / 2 + player1.radius, Math.min(player1.y, canvas.height - player1.radius));
+
+                // Update puck position and apply friction
+                puck.x += puck.dx;
+                puck.y += puck.dy;
+                puck.dx *= friction;
+                puck.dy *= friction;
+
+                // Puck collision with side walls
+                if (puck.x + puck.radius > canvas.width) {
+                    puck.dx *= -1;
+                    puck.x = canvas.width - puck.radius; // Reposition puck
+                } else if (puck.x - puck.radius < 0) {
+                    puck.dx *= -1;
+                    puck.x = puck.radius; // Reposition puck
+                }
+
+                // Puck collision with mallets
+                [player1, player2].forEach(player => {
+                    const dx = puck.x - player.x;
+                    const dy = puck.y - player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const minDistance = puck.radius + player.radius;
+
+                    if (distance < minDistance) {
+                        const angle = Math.atan2(dy, dx);
+                        const speed = Math.sqrt(puck.dx * puck.dx + puck.dy * puck.dy);
+                        
+                        puck.dx = Math.cos(angle) * (speed + 2);
+                        puck.dy = Math.sin(angle) * (speed + 2);
+
+                        puck.x = player.x + (minDistance + 1) * Math.cos(angle);
+                        puck.y = player.y + (minDistance + 1) * Math.sin(angle);
+                    }
+                });
+
+                // Scoring
+                const goalLeft = (canvas.width - goalWidth) / 2;
+                const goalRight = (canvas.width + goalWidth) / 2;
+
+                // Player 2 (human) scores in Player 1's (AI) goal (bottom)
+                if (puck.y + puck.radius > canvas.height) {
+                    if (puck.x > goalLeft && puck.x < goalRight) {
+                        player2.score++;
+                        if(player2ScoreElem) player2ScoreElem.textContent = player2.score.toString();
+                        resetPuck(-1); // Send puck towards AI
+                    } else {
+                        puck.dy *= -1; // Bounce off bottom wall
+                        puck.y = canvas.height - puck.radius;
+                    }
+                }
+
+                // Player 1 (AI) scores in Player 2's (human) goal (top)
+                if (puck.y - puck.radius < 0) {
+                    if (puck.x > goalLeft && puck.x < goalRight) {
+                        player1.score++;
+                        if(player1ScoreElem) player1ScoreElem.textContent = player1.score.toString();
+                        resetPuck(1); // Send puck towards human
+                    } else {
+                        puck.dy *= -1; // Bounce off top wall
+                        puck.y = puck.radius;
+                    }
+                }
+
+                // Check for winner
+                if (player1.score >= winningScore || player2.score >= winningScore) {
+                    gameOver = true;
+                }
+            }
+
+            // --- DRAWING ---
+            function drawCircle(x, y, radius, color) {
+                context.beginPath();
+                context.arc(x, y, radius, 0, Math.PI * 2);
+                context.fillStyle = color;
+                context.fill();
+                context.closePath();
+            }
+
+            function drawRink() {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                
+                context.strokeStyle = '#e5e7eb';
+                context.lineWidth = 4;
+                context.beginPath();
+                context.moveTo(0, canvas.height / 2);
+                context.lineTo(canvas.width, canvas.height / 2);
+                context.stroke();
+
+                context.beginPath();
+                context.arc(canvas.width / 2, canvas.height / 2, 50, 0, Math.PI * 2);
+                context.stroke();
+
+                context.strokeStyle = player1.color;
+                context.lineWidth = goalDepth;
+                context.beginPath();
+                context.moveTo((canvas.width - goalWidth) / 2, canvas.height);
+                context.lineTo((canvas.width + goalWidth) / 2, canvas.height);
+                context.stroke();
+
+                context.strokeStyle = player2.color;
+                context.beginPath();
+                context.moveTo((canvas.width - goalWidth) / 2, 0);
+                context.lineTo((canvas.width + goalWidth) / 2, 0);
+                context.stroke();
+            }
+
+            function draw() {
+                drawRink();
+
+                drawCircle(player1.x, player1.y, player1.radius, player1.color);
+                drawCircle(player2.x, player2.y, player2.radius, player2.color);
+                drawCircle(puck.x, puck.y, puck.radius, puck.color);
+
+                if (gameOver) {
+                    context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    context.fillRect(0, 0, canvas.width, canvas.height);
+
+                    context.fillStyle = 'white';
+                    context.font = 'bold 50px "Space Grotesk"';
+                    context.textAlign = 'center';
+                    const winnerText = player1.score >= winningScore ? 'AI Wins!' : 'You Win!';
+                    context.fillText(winnerText, canvas.width / 2, canvas.height / 2);
+                }
+            }
+
+            function gameLoop() {
+                update();
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+
+            resetPuck(1);
+            gameLoop();
+        });
+    </script>
+</body>
+</html>
