@@ -1,0 +1,82 @@
+/* Leaflet CSS overrides for Next.js */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  z-index: 0;
+}
+
+.leaflet-control-container {
+  z-index: 1000;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+}
+
+.leaflet-popup-content {
+  margin: 8px 12px;
+  font-family: inherit;
+}
+
+.custom-user-icon {
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Fix for Next.js image optimization conflicts */
+.leaflet-container img {
+  max-width: none !important;
+}
+
+/* Grayscale/terrain style map */
+.grayscale-map {
+  filter: grayscale(0.8) contrast(1.2) brightness(0.9);
+}
+
+/* 100m messaging range circle */
+.messaging-range-circle {
+  fill: rgba(59, 130, 246, 0.1);
+  stroke: rgba(59, 130, 246, 0.5);
+  stroke-width: 2;
+  stroke-dasharray: 5, 5;
+}
+
+/* Return to user button */
+.return-to-user-btn {
+  position: absolute;
+  bottom: 120px;
+  right: 10px;
+  z-index: 1000;
+  background: white;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+}
+
+.return-to-user-btn:hover {
+  background: #f4f4f4;
+}
+
+/* Custom messaging icon */
+.messaging-user-icon {
+  border: 3px solid #10b981 !important;
+  background-color: #10b981 !important;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .leaflet-container {
+    filter: hue-rotate(180deg) invert(1);
+  }
+  
+  .leaflet-control-zoom a,
+  .leaflet-control-layers-toggle {
+    filter: hue-rotate(180deg) invert(1);
+  }
+}

@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { BarChart2, MessageSquare, Settings, Swords, LocateFixed } from 'lucide-react';
-import { LeaderboardSheet } from './leaderboard-sheet';
+import { BarChart2, MessageSquare, Settings, Swords, LocateFixed, QrCode } from 'lucide-react';
+import { LeaderboardSheet } from './new-leaderboard-sheet';
 import { SettingsSheet } from './settings-sheet';
 import { ChatSheet } from './chat-sheet';
 import { BattleDialog } from './battle-dialog';
+import { QRBattleSystem } from './qr-battle-system';
+import { BattleManager } from './battle-manager';
+import InteractiveMap from './interactive-map';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { doc, setDoc, serverTimestamp, GeoPoint } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -17,10 +20,12 @@ export default function GameUI() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [battleDialogOpen, setBattleDialogOpen] = useState(false);
-  const { toast } = useToast();
-
-  // This would be derived from real-time GPS data
-  const isPlayerNearby = true; 
+  const [qrBattleOpen, setQrBattleOpen] = useState(false);
+  const [battleManagerOpen, setBattleManagerOpen] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
+  const [activeBattle, setActiveBattle] = useState<{ battleId: string; opponentId: string; opponentName: string } | null>(null);
+  const { toast } = useToast(); 
 
   const updateLocation = () => {
     const user = auth.currentUser;
@@ -54,6 +59,7 @@ export default function GameUI() {
         }, { merge: true });
         
         console.log("Location saved successfully to Firestore");
+        setCurrentLocation({ latitude, longitude }); // Update local state
         toast({
           title: "Location Updated!",
           description: "Your location has been shared.",
@@ -90,11 +96,37 @@ export default function GameUI() {
   };
 
   useEffect(() => {
-    // Update location once on component mount
-    updateLocation();
-    // And then every 5 minutes
-    const interval = setInterval(updateLocation, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    const user = auth.currentUser;
+    if (user) {
+      // First try to get stored location from database
+      const fetchStoredLocation = async () => {
+        try {
+          const { getDoc, doc } = await import('firebase/firestore');
+          const userLocationDoc = await getDoc(doc(db, 'locations', user.uid));
+          if (userLocationDoc.exists()) {
+            const data = userLocationDoc.data();
+            if (data.location && data.location.latitude && data.location.longitude) {
+              setCurrentLocation({
+                latitude: data.location.latitude,
+                longitude: data.location.longitude
+              });
+              return; // Don't update location if we have stored data
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching stored location:', error);
+        }
+        
+        // If no stored location, get current GPS location
+        updateLocation();
+      };
+
+      fetchStoredLocation();
+      
+      // Update location every 5 minutes
+      const interval = setInterval(updateLocation, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
   }, []);
 
   return (
@@ -169,23 +201,62 @@ export default function GameUI() {
         </TooltipProvider>
       </div>
 
-      {isPlayerNearby && (
+      {/* QR Battle Button */}
+      {selectedPlayer && (
         <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
           <Button
             size="lg"
             className="h-16 rounded-full bg-accent text-accent-foreground hover:bg-accent/90 shadow-2xl text-lg font-bold animate-pulse"
-            onClick={() => setBattleDialogOpen(true)}
+            onClick={() => setQrBattleOpen(true)}
           >
-            <Swords className="w-6 h-6 mr-3" />
-            Battle Nearby Player
+            <QrCode className="w-6 h-6 mr-3" />
+            Challenge {selectedPlayer.username}
           </Button>
         </div>
       )}
+
+      {/* Interactive Map */}
+      <div className="absolute inset-0 -z-10">
+        <InteractiveMap 
+          currentLocation={currentLocation}
+          onPlayerSelect={(player) => setSelectedPlayer(player)}
+          onLocationUpdate={(location) => setCurrentLocation(location)}
+        />
+      </div>
 
       <LeaderboardSheet open={leaderboardOpen} onOpenChange={setLeaderboardOpen} />
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
       <ChatSheet open={chatOpen} onOpenChange={setChatOpen} />
       <BattleDialog open={battleDialogOpen} onOpenChange={setBattleDialogOpen} />
+      
+      <QRBattleSystem
+        isOpen={qrBattleOpen}
+        onClose={() => setQrBattleOpen(false)}
+        selectedPlayer={selectedPlayer}
+        onBattleStart={(battleId, opponentId) => {
+          setActiveBattle({
+            battleId,
+            opponentId,
+            opponentName: selectedPlayer?.username || 'Unknown Player'
+          });
+          setBattleManagerOpen(true);
+          setQrBattleOpen(false);
+        }}
+      />
+
+      {activeBattle && (
+        <BattleManager
+          isOpen={battleManagerOpen}
+          onClose={() => {
+            setBattleManagerOpen(false);
+            setActiveBattle(null);
+            setSelectedPlayer(null);
+          }}
+          battleId={activeBattle.battleId}
+          opponentId={activeBattle.opponentId}
+          opponentName={activeBattle.opponentName}
+        />
+      )}
     </>
   );
 }

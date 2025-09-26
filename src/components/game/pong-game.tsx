@@ -6,23 +6,22 @@ import { Progress } from "../ui/progress";
 import { DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 
 type PongGameProps = {
-    opponentName: string;
-    onGameEnd: (result: 'win' | 'loss') => void;
+    onGameEnd: (playerWon: boolean) => void;
 };
 
 const MAX_HP = 100;
 const DAMAGE_PER_POINT = 25;
 
-export function PongGame({ opponentName, onGameEnd }: PongGameProps) {
+export function PongGame({ onGameEnd }: PongGameProps) {
     const [playerHp, setPlayerHp] = useState(MAX_HP);
     const [opponentHp, setOpponentHp] = useState(MAX_HP);
 
     useEffect(() => {
         if (playerHp <= 0) {
-            onGameEnd('loss');
+            onGameEnd(false); // Player lost
         }
         if (opponentHp <= 0) {
-            onGameEnd('win');
+            onGameEnd(true); // Player won
         }
     }, [playerHp, opponentHp, onGameEnd]);
 
@@ -45,7 +44,7 @@ export function PongGame({ opponentName, onGameEnd }: PongGameProps) {
                 {/* Opponent HP */}
                 <div className="space-y-2">
                     <div className="flex justify-between items-baseline">
-                        <span className="font-semibold">{opponentName}</span>
+                        <span className="font-semibold">Opponent</span>
                         <span className="text-sm text-muted-foreground">{opponentHp} / {MAX_HP} HP</span>
                     </div>
                     <Progress value={opponentHp} className="h-4" />

@@ -13,5 +13,28 @@ service cloud.firestore {
       allow read: if request.auth.uid != null;
       allow write: if request.auth.uid == userId;
     }
+
+    // Battle codes for QR handshake system
+    match /battle_codes/{battleId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Battle records
+    match /battles/{battleId} {
+      allow read, write: if request.auth != null && 
+        (resource == null || request.auth.uid in resource.data.participants);
+    }
+
+    // Daily battle tracking (prevent multiple battles between same users)
+    match /daily_battles/{interactionId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        request.auth.uid in request.resource.data.participants;
+    }
+
+    // Chat messages between users
+    match /chats/{chatId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }
