@@ -29,7 +29,7 @@ export default function RootLayout({
           crossOrigin=""
         />
       </head>
-      <body className="font-body antialiased">
+      <body className="font-body antialiased" suppressHydrationWarning={true}>
         {children}
         <Toaster />
       </body>
