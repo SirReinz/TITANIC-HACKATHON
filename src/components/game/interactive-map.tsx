@@ -5,8 +5,9 @@ import dynamic from 'next/dynamic';
 import { LatLngExpression, Map as LeafletMap } from 'leaflet';
 import { auth, db } from '@/lib/firebase';
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, GeoPoint, getDoc } from 'firebase/firestore';
-import { User as UserIcon } from 'lucide-react';
+import { User as UserIcon, Sun, Moon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 
 // Import Leaflet components dynamically to avoid SSR issues
 const MapContainer = dynamic(
@@ -62,6 +63,7 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
   const [mapCenter, setMapCenter] = useState<LatLngExpression>([40.7128, -74.0060]); // Default to NYC
   const [mapLoaded, setMapLoaded] = useState(false);
   const [userLocationLoaded, setUserLocationLoaded] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const mapRef = useRef<LeafletMap>(null);
   const { toast } = useToast();
 
@@ -366,27 +368,42 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
         </div>
       )}
 
-      {/* Return to user location button */}
+      {/* Map theme toggle and return to location buttons */}
       {mapLoaded && currentLocation && (
-        <button
-          onClick={returnToUserLocation}
-          className="absolute bottom-32 right-4 z-10 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg hover:bg-white transition-colors"
-          title="Return to your location"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        <div className="absolute bottom-32 right-4 z-10 flex gap-2">
+          <Button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            size="sm"
+            variant="outline"
+            className="bg-white/90 backdrop-blur-sm hover:bg-white/100 shadow-lg"
+            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-        </button>
+            {isDarkMode ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
+          <button
+            onClick={returnToUserLocation}
+            className="bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg hover:bg-white transition-colors"
+            title="Return to your location"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* Range legend */}
@@ -409,6 +426,8 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
         </div>
       )}
 
+
+
       <MapContainer
         center={mapCenter}
         zoom={16}
@@ -425,11 +444,12 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
         zoomControl={true}
         attributionControl={true}
       >
-        {/* Grayscale terrain-style tile layer */}
+        {/* Map tile layer with theme support */}
         <TileLayer
+          key={isDarkMode ? "dark" : "light"}
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          className="grayscale-map"
+          className={isDarkMode ? "dark-map" : "grayscale-map"}
         />
 
         {/* Current user marker and messaging range circle */}
