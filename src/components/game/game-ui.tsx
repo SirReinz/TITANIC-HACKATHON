@@ -23,6 +23,16 @@ export default function GameUI() {
   const isPlayerNearby = true; 
 
   const updateLocation = () => {
+    const user = auth.currentUser;
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "Authentication Required",
+        description: "Please log in to share your location.",
+      });
+      return;
+    }
+
     if (!navigator.geolocation) {
        toast({
         variant: "destructive",
@@ -33,33 +43,48 @@ export default function GameUI() {
 
     navigator.geolocation.getCurrentPosition(async (position) => {
       const { latitude, longitude } = position.coords;
-      const user = auth.currentUser;
-      if (user) {
-        try {
-          const userLocationRef = doc(db, 'locations', user.uid);
-          await setDoc(userLocationRef, {
-            location: new GeoPoint(latitude, longitude),
-            timestamp: serverTimestamp(),
-            userId: user.uid,
-            username: user.displayName,
-          }, { merge: true });
-          toast({
-            title: "Location Updated!",
-            description: "Your location has been shared.",
-          });
-        } catch (error) {
-          console.error("Error updating location:", error);
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Could not update your location.",
-          });
-        }
+      try {
+        console.log(`Saving location for user ${user.uid}:`, { latitude, longitude });
+        const userLocationRef = doc(db, 'locations', user.uid);
+        await setDoc(userLocationRef, {
+          location: new GeoPoint(latitude, longitude),
+          timestamp: serverTimestamp(),
+          userId: user.uid,
+          username: user.displayName || user.email,
+        }, { merge: true });
+        
+        console.log("Location saved successfully to Firestore");
+        toast({
+          title: "Location Updated!",
+          description: "Your location has been shared.",
+        });
+      } catch (error) {
+        console.error("Error updating location:", error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: `Could not update your location: ${errorMessage}`,
+        });
       }
-    }, () => {
-       toast({
+    }, (error) => {
+      console.error("Geolocation error:", error);
+      let message = "Location access denied or unavailable.";
+      switch (error.code) {
+        case error.PERMISSION_DENIED:
+          message = "Location access was denied. Please allow location access in your browser.";
+          break;
+        case error.POSITION_UNAVAILABLE:
+          message = "Location information is unavailable.";
+          break;
+        case error.TIMEOUT:
+          message = "Location request timed out.";
+          break;
+      }
+      toast({
         variant: "destructive",
         title: "Unable to retrieve your location",
+        description: message,
       });
     });
   };

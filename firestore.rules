@@ -10,7 +10,7 @@ service cloud.firestore {
 
     // Authenticated users can read all locations, but only write their own.
     match /locations/{userId} {
-      allow read: if request.auth.id != null;
+      allow read: if request.auth.uid != null;
       allow write: if request.auth.uid == userId;
     }
   }
