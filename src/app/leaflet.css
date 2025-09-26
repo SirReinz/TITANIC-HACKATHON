@@ -3,6 +3,15 @@
   height: 100%;
   width: 100%;
   z-index: 0;
+  cursor: grab;
+}
+
+.leaflet-container:active {
+  cursor: grabbing;
+}
+
+.leaflet-dragging .leaflet-container {
+  cursor: grabbing;
 }
 
 .leaflet-control-container {

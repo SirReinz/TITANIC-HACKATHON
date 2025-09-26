@@ -20,9 +20,14 @@ const recentContacts = [
 type ChatSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  selectedPlayer?: {
+    id: string;
+    username: string;
+    university: string;
+  } | null;
 };
 
-export function ChatSheet({ open, onOpenChange }: ChatSheetProps) {
+export function ChatSheet({ open, onOpenChange, selectedPlayer }: ChatSheetProps) {
   // In a real app, this would be dynamic state
   const selectedContact = recentContacts[0];
 

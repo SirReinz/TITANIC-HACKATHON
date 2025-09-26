@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { LatLngExpression, Map as LeafletMap } from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { auth, db } from '@/lib/firebase';
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, GeoPoint, getDoc } from 'firebase/firestore';
 import { User as UserIcon } from 'lucide-react';
@@ -35,6 +34,8 @@ const Circle = dynamic(
   { ssr: false }
 );
 
+
+
 interface PlayerLocation {
   id: string;
   username: string;
@@ -51,24 +52,12 @@ interface PlayerLocation {
 interface InteractiveMapProps {
   currentLocation: { latitude: number; longitude: number } | null;
   onPlayerSelect?: (player: PlayerLocation) => void;
-  onLocationUpdate?: (location: { latitude: number; longitude: number }) => void;
   onStartChat?: (player: PlayerLocation) => void;
 }
 
-// Custom hook for map events
-function MapEvents({ onLocationUpdate }: { onLocationUpdate: (lat: number, lng: number) => void }) {
-  const { useMapEvents } = require('react-leaflet');
-  
-  const map = useMapEvents({
-    click: (e: any) => {
-      const { lat, lng } = e.latlng;
-      onLocationUpdate(lat, lng);
-    },
-  });
-  return null;
-}
 
-export default function InteractiveMap({ currentLocation, onPlayerSelect, onLocationUpdate, onStartChat }: InteractiveMapProps) {
+
+export default function InteractiveMap({ currentLocation, onPlayerSelect, onStartChat }: InteractiveMapProps) {
   const [players, setPlayers] = useState<PlayerLocation[]>([]);
   const [mapCenter, setMapCenter] = useState<LatLngExpression>([40.7128, -74.0060]); // Default to NYC
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -76,13 +65,21 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
   const mapRef = useRef<LeafletMap>(null);
   const { toast } = useToast();
 
-  // Create custom icon for current user
-  const createCustomIcon = (isCurrentUser = false) => {
+  // Create custom icon for users
+  const createCustomIcon = (isCurrentUser = false, distance = 0) => {
     if (typeof window === 'undefined') return undefined;
     
     const L = require('leaflet');
     const iconSize = isCurrentUser ? [40, 40] : [30, 30];
-    const iconColor = isCurrentUser ? '#3b82f6' : '#ef4444';
+    
+    let iconColor = '#ef4444'; // Default red (out of range)
+    if (isCurrentUser) {
+      iconColor = '#3b82f6'; // Blue for current user
+    } else if (distance <= 50) {
+      iconColor = '#f59e0b'; // Orange for battle range (≤50m)
+    } else if (distance <= 100) {
+      iconColor = '#10b981'; // Green for messaging range (≤100m)
+    }
     
     return L.divIcon({
       html: `<div style="
@@ -126,11 +123,7 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
             setMapCenter([storedLocation.latitude, storedLocation.longitude]);
             setUserLocationLoaded(true);
             
-            // Update the current location prop if it's not set
-            if (!currentLocation) {
-              // Call the parent component to update current location
-              onLocationUpdate?.(storedLocation);
-            }
+            // Location will be loaded from database by the parent component
             
             toast({
               title: "Location Loaded",
@@ -261,27 +254,7 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
     }
   };
 
-  const handleMapClick = async (lat: number, lng: number) => {
-    // Optional: Allow manual location update by clicking on map
-    const user = auth.currentUser;
-    if (!user) return;
 
-    try {
-      await updateDoc(doc(db, 'locations', user.uid), {
-        location: new GeoPoint(lat, lng),
-        timestamp: serverTimestamp(),
-      });
-      
-      onLocationUpdate?.({ latitude: lat, longitude: lng });
-      
-      toast({
-        title: "Location Updated",
-        description: "Your location has been updated on the map.",
-      });
-    } catch (error) {
-      console.error("Error updating location:", error);
-    }
-  };
 
   const refreshLocationFromDatabase = async () => {
     const user = auth.currentUser;
@@ -297,7 +270,6 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
             longitude: data.location.longitude
           };
           setMapCenter([storedLocation.latitude, storedLocation.longitude]);
-          onLocationUpdate?.(storedLocation);
           
           // Move map to the location
           if (mapRef.current) {
@@ -336,13 +308,31 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
 
   const handleMapReady = () => {
     setMapLoaded(true);
+    console.log('Map is ready and loaded');
+    
+    // Ensure map is draggable
+    if (mapRef.current) {
+      const map = mapRef.current;
+      console.log('Map dragging enabled:', map.dragging?.enabled());
+      console.log('Map options:', {
+        dragging: map.options.dragging,
+        touchZoom: map.options.touchZoom,
+        scrollWheelZoom: map.options.scrollWheelZoom
+      });
+      
+      // Force enable dragging if it's disabled
+      if (map.dragging && !map.dragging.enabled()) {
+        map.dragging.enable();
+        console.log('Dragging manually enabled');
+      }
+    }
   };
 
   return (
     <div className="w-full h-full relative">
       {/* Loading overlay */}
       {!mapLoaded && (
-        <div className="absolute inset-0 bg-green-100 flex items-center justify-center z-50">
+        <div className="absolute inset-0 bg-green-100 flex items-center justify-center z-50 pointer-events-none">
           <div className="text-center">
             <div className="text-lg text-green-800 mb-2">Loading interactive map...</div>
             <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -404,12 +394,16 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
         <div className="absolute bottom-4 left-4 z-10 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg text-xs">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-              <span>100m - Messaging Range</span>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span>💬 100m - Messaging</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+              <span>⚔️ 50m - Battle</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <span>50m - Battle Range</span>
+              <span>❌ Out of Range</span>
             </div>
           </div>
         </div>
@@ -421,12 +415,15 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
         className="w-full h-full z-0"
         ref={mapRef}
         whenReady={handleMapReady}
+        style={{ height: '100%', width: '100%' }}
         dragging={true}
         touchZoom={true}
         doubleClickZoom={true}
         scrollWheelZoom={true}
         boxZoom={true}
         keyboard={true}
+        zoomControl={true}
+        attributionControl={true}
       >
         {/* Grayscale terrain-style tile layer */}
         <TileLayer
@@ -434,8 +431,6 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           className="grayscale-map"
         />
-        
-        <MapEvents onLocationUpdate={handleMapClick} />
 
         {/* Current user marker and messaging range circle */}
         {currentLocation && (
@@ -495,45 +490,63 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onLoca
         )}
 
         {/* Other players markers */}
-        {players.map((player) => (
-          <Marker
-            key={player.id}
-            position={[player.location.latitude, player.location.longitude]}
-            icon={createCustomIcon(false)}
-            eventHandlers={{
-              click: () => handlePlayerClick(player),
-            }}
-          >
-            <Popup>
-              <div className="text-center min-w-[150px]">
-                <strong>{player.username}</strong>
-                <br />
-                <span className="text-sm text-blue-600">{player.university}</span>
-                <br />
-                <span className="text-xs text-gray-600">
-                  W: {player.wins} | L: {player.losses}
-                </span>
-                <br />
-                <span className="text-xs text-gray-500">
-                  Distance: {currentLocation ? 
-                    Math.round(calculateDistance(
-                      currentLocation.latitude,
-                      currentLocation.longitude,
-                      player.location.latitude,
-                      player.location.longitude
-                    )) : '?'}m
-                </span>
-                <br />
-                <button
-                  onClick={() => handlePlayerClick(player)}
-                  className="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
-                >
-                  Challenge
-                </button>
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {players.map((player) => {
+          const distance = currentLocation ? calculateDistance(
+            currentLocation.latitude,
+            currentLocation.longitude,
+            player.location.latitude,
+            player.location.longitude
+          ) : 0;
+          
+          return (
+            <Marker
+              key={player.id}
+              position={[player.location.latitude, player.location.longitude]}
+              icon={createCustomIcon(false, distance)}
+              eventHandlers={{
+                click: () => handlePlayerClick(player),
+              }}
+            >
+              <Popup>
+                <div className="text-center min-w-[150px]">
+                  <strong>{player.username}</strong>
+                  <br />
+                  <span className="text-sm text-blue-600">{player.university}</span>
+                  <br />
+                  <span className="text-xs text-gray-600">
+                    W: {player.wins} | L: {player.losses}
+                  </span>
+                  <br />
+                  <span className="text-xs text-gray-500">
+                    Distance: {Math.round(distance)}m
+                  </span>
+                  <br />
+                  <div className="mt-2 space-y-1">
+                    {distance <= 50 && (
+                      <button
+                        onClick={() => handlePlayerClick(player)}
+                        className="block w-full px-3 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-600"
+                      >
+                        ⚔️ Challenge to Battle
+                      </button>
+                    )}
+                    {distance <= 100 && (
+                      <button
+                        onClick={() => handlePlayerClick(player)}
+                        className="block w-full px-3 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600"
+                      >
+                        💬 Start Chat
+                      </button>
+                    )}
+                    {distance > 100 && (
+                      <span className="text-xs text-gray-500">Too far away</span>
+                    )}
+                  </div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
     </div>
   );

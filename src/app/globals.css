@@ -86,3 +86,20 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Leaflet map styles */
+.grayscale-map {
+  filter: grayscale(60%) contrast(1.1) brightness(1.05);
+}
+
+.leaflet-container {
+  cursor: grab;
+}
+
+.leaflet-container:active {
+  cursor: grabbing;
+}
+
+.leaflet-dragging .leaflet-container {
+  cursor: grabbing;
+}
