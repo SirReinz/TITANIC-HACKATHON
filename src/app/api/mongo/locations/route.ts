@@ -21,8 +21,9 @@ export async function GET(request: NextRequest) {
     const lat = parseFloat(searchParams.get('lat') || '0')
     const lng = parseFloat(searchParams.get('lng') || '0')
     const radius = parseFloat(searchParams.get('radius') || '1') // Default 1km
-    const currentUserId = searchParams.get('currentUserId')
-    const uid = searchParams.get('uid') // For fetching single user location
+  const currentUserId = searchParams.get('currentUserId')
+  // Accept either 'uid' or legacy 'userId' query param from callers
+  const uid = searchParams.get('uid') || searchParams.get('userId') // For fetching single user location
 
     // If UID is provided, return just that user's location
     if (uid) {

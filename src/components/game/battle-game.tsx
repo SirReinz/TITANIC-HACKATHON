@@ -12,14 +12,14 @@ interface BattleGameProps {
   battleId: string;
   opponentId?: string;
   opponentName?: string;
+  onStart?: (battleId: string, opponentId?: string) => void;
 }
 
-export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleId, opponentId, opponentName }) => {
+export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleId, opponentId, opponentName, onStart }) => {
   const { toast } = useToast();
   const [battle, setBattle] = useState<any | null>(null);
   const [status, setStatus] = useState<string>('idle');
-  const [myScore, setMyScore] = useState<number>(0);
-  const [opponentScore, setOpponentScore] = useState<number>(0);
+  const [started, setStarted] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
   const uid = auth.currentUser?.uid || null;
@@ -33,13 +33,47 @@ export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleI
     if (!battleId) return null;
     try {
       const resp = await fetch(`/api/mongo/battle-games?battleId=${encodeURIComponent(battleId)}`);
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      return json.battleGame || null;
+      if (resp.ok) {
+        const json = await resp.json();
+        return json.battleGame || null;
+      }
+
+      // If the battle game does not exist yet (404), try to create it using current user + opponent info
+      if (resp.status === 404) {
+        try {
+          const user = auth.currentUser;
+          if (!user) return null;
+
+          // Post a create request. The server will dedupe if the record already exists.
+          const body = {
+            battleId,
+            player1Id: user.uid,
+            player1Name: user.displayName || user.email || user.uid,
+            player2Id: opponentId || '',
+            player2Name: opponentName || ''
+          };
+
+          const createResp = await fetch('/api/mongo/battle-games', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          if (createResp.ok) {
+            const created = await createResp.json();
+            return created.battleGame || null;
+          }
+        } catch (e) {
+          // ignore create errors, fallthrough to return null
+          console.warn('Could not auto-create battle-game record:', e);
+        }
+      }
+
+      return null;
     } catch (e) {
       return null;
     }
-  }, [battleId]);
+  }, [battleId, opponentId, opponentName]);
 
   // Poll for battle state
   useEffect(() => {
@@ -51,9 +85,14 @@ export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleI
       if (!mounted) return;
       if (latest) {
         setBattle(latest);
-        setMyScore(latest.player1?.id === uid ? latest.player1?.score || 0 : latest.player2?.score || 0);
-        setOpponentScore(latest.player1?.id === uid ? latest.player2?.score || 0 : latest.player1?.score || 0);
         setStatus(latest.status || 'waiting');
+        // If server marked status active and we haven't forwarded start yet, call onStart
+        if (!started && latest.status === 'active') {
+          setStarted(true);
+          if (onStart) onStart(battleId, opponentId || (latest.player1?.id === uid ? latest.player2?.id : latest.player1?.id));
+          // close the dialog as parent will transition into game
+          onClose();
+        }
       }
     };
 
@@ -90,20 +129,8 @@ export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleI
 
   const handleReady = useCallback(async () => {
     if (!battle) return;
-    const ok = await sendAction('ready', { isPlayer1 });
-    if (ok) setStatus('ready');
+    await sendAction('ready', { isPlayer1 });
   }, [battle, isPlayer1, sendAction]);
-
-  // If both ready and not active, issue start (only one player needs to call)
-  useEffect(() => {
-    if (!battle) return;
-    const p1 = !!battle.player1?.ready;
-    const p2 = !!battle.player2?.ready;
-    if (p1 && p2 && battle.status !== 'active') {
-      // start the game
-      sendAction('start');
-    }
-  }, [battle, sendAction]);
 
   const updateScore = useCallback(async (isMyScore: boolean, newScore: number) => {
     if (!battle) return;
@@ -116,46 +143,59 @@ export const BattleGame: React.FC<BattleGameProps> = ({ isOpen, onClose, battleI
     onClose();
   }, [battle, sendAction, uid, onClose]);
 
+  const myReady = useMemo(() => {
+    if (!battle || !uid) return false;
+    return isPlayer1 ? battle.player1?.ready : battle.player2?.ready;
+  }, [battle, uid, isPlayer1]);
+
+  const opponentReady = useMemo(() => {
+    if (!battle || !uid) return false;
+    return isPlayer1 ? battle.player2?.ready : battle.player1?.ready;
+  }, [battle, uid, isPlayer1]);
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Battle</DialogTitle>
+          <DialogTitle>Ready Up</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 border rounded">
-            <h4 className="font-semibold">Battle Info</h4>
-            <div>Battle ID: <code>{battleId}</code></div>
-            <div>Game: {battle?.gameName || '—'}</div>
-            <div>Status: <strong>{status}</strong></div>
-            <div className="mt-2">You: <code>{uid || 'anonymous'}</code></div>
-            <div>Opponent: <code>{opponentName || battle?.player1?.id === uid ? battle?.player2?.name : battle?.player1?.name}</code></div>
-            <div className="mt-3 flex gap-2">
-              <Button onClick={handleReady} disabled={!uid || status === 'in-progress' || status === 'active'}>Ready</Button>
-              <Button onClick={() => updateScore(true, (myScore || 0) + 1)}>Inc My Score</Button>
-              <Button onClick={() => updateScore(false, (opponentScore || 0) + 1)}>Inc Opp Score</Button>
-              <Button variant="outline" onClick={() => completeBattle(uid ?? undefined)}>Finish</Button>
+        <div className="space-y-6 text-center">
+          {/* Game Display */}
+          <div>
+            <div className="text-sm text-gray-600 mb-2">Game Selected</div>
+            <div className="text-2xl font-bold">{battle?.gameName || battle?.gameId || 'Loading...'}</div>
+          </div>
+
+          {/* Ready Status */}
+          <div className="space-y-3">
+            <div>
+              <div className="text-sm text-gray-600">You</div>
+              <div className={`font-semibold ${myReady ? 'text-green-600' : 'text-red-600'}`}>
+                {myReady ? '✓ Ready' : '✗ Not Ready'}
+              </div>
+            </div>
+            
+            <div>
+              <div className="text-sm text-gray-600">Opponent</div>
+              <div className={`font-semibold ${opponentReady ? 'text-green-600' : 'text-red-600'}`}>
+                {opponentReady ? '✓ Ready' : '✗ Not Ready'}
+              </div>
             </div>
           </div>
 
-          <div className="p-4 border rounded">
-            <h4 className="font-semibold">Scores</h4>
-            <div className="flex items-center justify-between mt-2">
-              <div>
-                <div className="text-sm text-gray-500">You</div>
-                <div className="text-2xl font-bold">{myScore}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-500">Opponent</div>
-                <div className="text-2xl font-bold">{opponentScore}</div>
-              </div>
-            </div>
+          {/* Ready Button */}
+          <Button 
+            onClick={handleReady} 
+            className="w-full" 
+            disabled={!uid || myReady}
+            size="lg"
+          >
+            {myReady ? 'Ready!' : 'Ready Up'}
+          </Button>
 
-            <div className="mt-4">
-              <div className="text-sm text-gray-500">Game Area (placeholder)</div>
-              <div className="h-40 bg-gray-50 rounded border mt-2 flex items-center justify-center">Game UI would render here</div>
-            </div>
+          <div className="text-sm text-gray-500">
+            Game starts instantly when both players are ready
           </div>
         </div>
 

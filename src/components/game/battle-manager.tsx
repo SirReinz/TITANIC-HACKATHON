@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { auth, db } from '@/lib/firebase';
 import { doc, setDoc, updateDoc, getDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { Heart, Zap, Trophy, X } from 'lucide-react';
-import { PongGame } from './pong-game';
+import { PongGame as SimplePong } from '../games/PongGame';
 
 interface BattleManagerProps {
   isOpen: boolean;
@@ -43,6 +43,8 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
   });
   
   const [showPongGame, setShowPongGame] = useState(false);
+  const [showGame, setShowGame] = useState(false);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [isWaitingForOpponent, setIsWaitingForOpponent] = useState(false);
   const { toast } = useToast();
 
@@ -58,8 +60,26 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
     if (!user) return;
 
     try {
+      // Try to fetch battle metadata from MongoDB (preferred) to discover selected game
+      try {
+        const resp = await fetch(`/api/mongo/battle-games?battleId=${encodeURIComponent(battleId)}`);
+        if (resp.ok) {
+          const json = await resp.json();
+          const bg = json.battleGame;
+          if (bg) {
+            setSelectedGameId(bg.gameId || null);
+            // Initialize basic state from server if present
+            if (bg.gameState && bg.gameState.data) {
+              setBattleState(prev => ({ ...prev, ...bg.gameState.data }));
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Could not fetch battle metadata from Mongo, falling back to firestore init', e);
+      }
+
+      // Backwards-compatible Firestore initialization (if needed)
       const battleDoc = await getDoc(doc(db, 'battles', battleId));
-      
       if (battleDoc.exists()) {
         const battleData = battleDoc.data();
         setBattleState(prevState => ({
@@ -67,7 +87,7 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
           ...battleData.state,
         }));
       } else {
-        // Initialize new battle
+        // Initialize new battle in firestore for other systems that rely on it
         const initialBattleData = {
           battleId,
           participants: [user.uid, opponentId],
@@ -90,47 +110,74 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
     }
   };
 
-  const startPongRound = () => {
-    setShowPongGame(true);
+  const startRound = () => {
+    // Only Pong is available now
+    if (!selectedGameId) {
+      setSelectedGameId('pong');
+      setTimeout(() => setShowGame(true), 50);
+    } else {
+      setShowGame(true);
+    }
   };
 
-  const handlePongResult = async (playerWon: boolean) => {
-    setShowPongGame(false);
-    
+  const handleRoundResult = async (playerWon: boolean) => {
+    setShowGame(false);
     const newState = { ...battleState };
-    
+
     if (playerWon) {
       newState.playerWins += 1;
       newState.opponentHp = Math.max(0, newState.opponentHp - 10);
-      toast({
-        title: "Round Won!",
-        description: `You dealt 10 damage to ${opponentName}`,
-      });
+      toast({ title: 'Round Won!', description: `You dealt 10 damage to ${opponentName}` });
     } else {
       newState.opponentWins += 1;
       newState.playerHp = Math.max(0, newState.playerHp - 10);
-      toast({
-        variant: "destructive",
-        title: "Round Lost",
-        description: `${opponentName} dealt 10 damage to you`,
-      });
+      toast({ variant: 'destructive', title: 'Round Lost', description: `${opponentName} dealt 10 damage to you` });
     }
 
     newState.currentRound += 1;
 
     // Check for battle end conditions
-    if (newState.playerHp <= 0 || newState.opponentHp <= 0 || 
-        newState.playerWins > newState.totalRounds / 2 || 
-        newState.opponentWins > newState.totalRounds / 2) {
-      
+    if (
+      newState.playerHp <= 0 ||
+      newState.opponentHp <= 0 ||
+      newState.playerWins > newState.totalRounds / 2 ||
+      newState.opponentWins > newState.totalRounds / 2
+    ) {
       newState.battleStatus = 'finished';
       newState.winner = newState.playerHp > newState.opponentHp ? user?.uid : opponentId;
-      
       await endBattle(newState);
     } else {
-      // Continue battle
       setBattleState(newState);
       await updateBattleState(newState);
+      
+      // Auto-start next round after a brief delay
+      setTimeout(() => {
+        setShowGame(true);
+      }, 2000);
+    }
+  };
+
+  // GameRunner: mounts the selected game component and normalizes onGameEnd to a boolean playerWon
+  const GameRunner: React.FC<{ gameId: string; onEnd: (playerWon: boolean) => void }> = ({ gameId, onEnd }) => {
+    // For single-player rounds we consider player1 as local user
+    switch (gameId) {
+      case 'pong':
+        return (
+          <SimplePong 
+            key="battle-pong" 
+            roomId="battle-singleplayer"
+            playerId="player1"
+            singlePlayer={true} 
+            onGameEnd={(winner) => onEnd(winner === 'player1')} 
+          />
+        );
+      default:
+        return (
+          <div className="p-6">
+            <p>Only Pong is available. Game ID: {gameId}</p>
+            <Button onClick={() => onEnd(false)}>Skip Round</Button>
+          </div>
+        );
     }
   };
 
@@ -228,14 +275,16 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
     await endBattle(finalState);
   };
 
-  if (showPongGame) {
+  if (showGame && selectedGameId) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Round {battleState.currentRound} - Pong Battle!</DialogTitle>
+            <DialogTitle>Round {battleState.currentRound} - {selectedGameId.toUpperCase()}</DialogTitle>
           </DialogHeader>
-          <PongGame onGameEnd={handlePongResult} />
+          <div className="p-4">
+            <GameRunner gameId={selectedGameId} onEnd={handleRoundResult} />
+          </div>
         </DialogContent>
       </Dialog>
     );
@@ -324,12 +373,8 @@ export function BattleManager({ isOpen, onClose, battleId, opponentId, opponentN
 
               {/* Action Buttons */}
               <div className="space-y-2">
-                <Button 
-                  onClick={startPongRound}
-                  className="w-full"
-                  disabled={isWaitingForOpponent}
-                >
-                  {isWaitingForOpponent ? 'Waiting for opponent...' : 'Start Pong Round'}
+                <Button onClick={startRound} className="w-full" disabled={isWaitingForOpponent}>
+                  {isWaitingForOpponent ? 'Waiting for opponent...' : 'Start Round'}
                 </Button>
                 
                 <Button 

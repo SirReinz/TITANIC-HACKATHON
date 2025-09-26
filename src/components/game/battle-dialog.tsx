@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from '../ui/button';
 import { QrCodePlaceholder } from '../icons';
-import { PongGame } from './pong-game';
+import { PongGame } from '../games/PongGame';
 import { Camera, RefreshCw } from 'lucide-react';
 
 type BattleDialogProps = {
@@ -86,7 +86,14 @@ export function BattleDialog({ open, onOpenChange }: BattleDialogProps) {
           </>
         );
       case 'in_game':
-        return <PongGame opponentName={opponentName} onGameEnd={() => setStep('results')} />;
+        return (
+          <PongGame 
+            roomId="battle-dialog"
+            playerId="player1"
+            singlePlayer={true}
+            onGameEnd={(winner) => setStep('results')} 
+          />
+        );
       case 'results':
         return (
           <>

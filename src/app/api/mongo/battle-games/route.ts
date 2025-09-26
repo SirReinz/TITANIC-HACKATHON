@@ -1,31 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToMongoDB } from '@/lib/mongodb';
 
-// Available games configuration
+// Available games configuration - Only Pong
 const AVAILABLE_GAMES = [
   {
     id: 'pong',
     name: 'Pong Battle',
     path: 'react-game',
     description: 'Classic paddle game with real-time multiplayer'
-  },
-  {
-    id: 'airhockey',
-    name: 'Air Hockey',
-    path: 'react-game',
-    description: 'Fast-paced air hockey with physics'
-  },
-  {
-    id: 'barreldodger',
-    name: 'Barrel Dodger',
-    path: 'react-game',
-    description: 'Survive falling barrels and obstacles'
-  },
-  {
-    id: 'spacerace',
-    name: 'Space Race',
-    path: 'react-game',
-    description: 'Dodge asteroids and survive in space'
   }
 ];
 
@@ -228,6 +210,18 @@ export async function PUT(request: NextRequest) {
             [playerField]: true
           }
         };
+
+        // Check if both players will be ready after this update
+        const currentBattle = await db.collection('battle_games').findOne({ battleId });
+        if (currentBattle) {
+          const otherPlayerReady = data?.isPlayer1 ? currentBattle.player2?.ready : currentBattle.player1?.ready;
+          if (otherPlayerReady) {
+            // Both players are ready, also set status to active
+            updateQuery.$set.status = 'active';
+            updateQuery.$set.startedAt = new Date();
+            console.log('Both players ready, automatically starting game');
+          }
+        }
         break;
 
       case 'start':

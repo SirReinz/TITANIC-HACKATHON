@@ -1,30 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUsers } from '@/lib/mongodb'
 
-// GET - Fetch user by UID
+// GET - Fetch user by UID or all users for leaderboard
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const uid = searchParams.get('uid')
 
-    if (!uid) {
-      return NextResponse.json(
-        { success: false, error: 'UID is required' },
-        { status: 400 }
-      )
-    }
-
     const usersCollection = await getUsers()
-    const user = await usersCollection.findOne({ uid })
 
-    return NextResponse.json({ 
-      success: true, 
-      user: user || null
-    })
+    if (uid) {
+      // Fetch specific user by UID
+      const user = await usersCollection.findOne({ uid })
+      return NextResponse.json({ 
+        success: true, 
+        user: user || null
+      })
+    } else {
+      // Fetch all users for leaderboard (no UID provided)
+      const users = await usersCollection.find({}).toArray()
+      return NextResponse.json({ 
+        success: true, 
+        users: users
+      })
+    }
   } catch (error) {
-    console.error('Error fetching user:', error)
+    console.error('Error fetching users:', error)
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch user' },
+      { success: false, error: 'Failed to fetch users' },
       { status: 500 }
     )
   }

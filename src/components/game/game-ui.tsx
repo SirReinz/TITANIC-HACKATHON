@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { BarChart2, MessageSquare, Settings, Swords, LocateFixed, QrCode } from 'lucide-react';
-import { LeaderboardSheet } from './new-leaderboard-sheet';
+import { LeaderboardSheet } from './leaderboard-sheet';
 import { SettingsSheet } from './settings-sheet';
 import { MongoChatSheet } from './mongo-chat-sheet';
 import { BattleDialog } from './battle-dialog';
 import { QRBattleSystem } from './qr-battle-system';
 import { BattleManager } from './battle-manager';
+import { MinimalBattle } from './minimal-battle';
 import InteractiveMap from './interactive-map';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { auth } from '@/lib/firebase';
@@ -35,6 +36,13 @@ export default function GameUI() {
   const [isOnline, setIsOnline] = useState(false);
   const locationUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast(); 
+
+  // Memoized callback to prevent MinimalBattle from re-rendering due to prop changes
+  const handleBattleClose = useCallback(() => {
+    setBattleManagerOpen(false);
+    setActiveBattle(null);
+    setSelectedPlayer(null);
+  }, []);
 
   // Simple function to just update location - NO nearby player fetching
   const updateLocationOnly = async () => {
@@ -816,13 +824,9 @@ export default function GameUI() {
       />
 
       {activeBattle && (
-        <BattleManager
+        <MinimalBattle
           isOpen={battleManagerOpen}
-          onClose={() => {
-            setBattleManagerOpen(false);
-            setActiveBattle(null);
-            setSelectedPlayer(null);
-          }}
+          onClose={handleBattleClose}
           battleId={activeBattle.battleId}
           opponentId={activeBattle.opponentId}
           opponentName={activeBattle.opponentName}

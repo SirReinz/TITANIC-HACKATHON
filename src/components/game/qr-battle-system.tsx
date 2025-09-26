@@ -473,6 +473,10 @@ export function QRBattleSystem({ isOpen, onClose, selectedPlayer, onBattleStart 
       battleId={battleCode}
       opponentId={gameOpponentId}
       opponentName={gameOpponentName}
+      onStart={(bid, oppId) => {
+        // Forward start event to parent so app can mount the actual game
+        onBattleStart(bid, oppId || gameOpponentId);
+      }}
     />
     </>
   );

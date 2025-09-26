@@ -8,6 +8,10 @@ interface PongGameProps {
   roomId?: string;
   // playerId may be omitted; server will assign one
   playerId?: 'player1' | 'player2' | string;
+  // callback when game ends
+  onGameEnd?: (winner: 'player1' | 'player2') => void;
+  // disable ready button and multiplayer logic for single-player mode
+  singlePlayer?: boolean;
 }
 
 export interface PongGameState {
@@ -20,12 +24,20 @@ export interface PongGameState {
   lastUpdateTime?: number;
 }
 
-export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId }: PongGameProps) {
+const PongGameComponent = ({ roomId: initialRoomId = '', playerId: initialPlayerId, onGameEnd, singlePlayer = false }: PongGameProps) => {
+  console.log('🏓 PongGame MOUNTED with singlePlayer:', singlePlayer, 'roomId:', initialRoomId);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gameStateRef = useRef<PongGameState | null>(null);
+
+  // Debug unmounting
+  useEffect(() => {
+    return () => {
+      console.log('🏓 PongGame UNMOUNTING - this should not happen during gameplay!');
+    };
+  }, []);
   // singleplayer mode - no websockets
   const [localGameState, setLocalGameState] = useState<PongGameState>({
-    ball: { x: 400, y: 200, speedX: 2.67, speedY: 2.67 },
+    ball: { x: 400, y: 200, speedX: 4.5, speedY: 4.5 },
     player1: { y: 150, score: 0 },
     player2: { y: 150, score: 0 },
     gameStarted: false,
@@ -39,6 +51,11 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
 
   // mark ready by persisting a ready flag to the DB; server / polling will detect both ready
   const markReady = useCallback(async () => {
+    if (singlePlayer) {
+      console.log('PongGame: Skipping markReady - singlePlayer mode');
+      setIsReady(true);
+      return;
+    }
     const gameId = assignedRoomId || '';
     const me = assignedPlayerId || initialPlayerId || 'player1';
     try {
@@ -54,7 +71,7 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     } catch (e) {
       // ignore
     }
-  }, [assignedRoomId, assignedPlayerId, initialPlayerId]);
+  }, [assignedRoomId, assignedPlayerId, initialPlayerId, singlePlayer]);
 
   // Configuration constants
   const CANVAS_WIDTH = 800;
@@ -69,9 +86,12 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     gameStateRef.current = localGameState;
   }, [localGameState]);
 
-  // Persistence polling: every 500ms PUT current scores and GET latest authoritative scores
+  // Persistence polling: every 500ms PUT current scores and GET latest authoritative scores (skip in single-player mode)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || singlePlayer || initialRoomId?.includes('singleplayer') || initialRoomId?.includes('battle')) {
+      console.log('PongGame: Skipping persistence polling - singlePlayer mode or battle mode');
+      return;
+    }
     let mounted = true;
     const gameId = assignedRoomId || `pong_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
     setAssignedRoomId(gameId);
@@ -100,12 +120,20 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
             const remoteP1 = typeof json.player1Score === 'number' ? json.player1Score : null;
             const remoteP2 = typeof json.player2Score === 'number' ? json.player2Score : null;
             setLocalGameState((prev) => {
-              const next = { ...prev } as PongGameState;
-              if (remoteP1 !== null) next.player1.score = remoteP1;
-              if (remoteP2 !== null) next.player2.score = remoteP2;
+              const next = { 
+                ...prev,
+                // Preserve current ball position, paddle positions, and game timing
+                ball: prev.ball,
+                player1: { ...prev.player1, score: remoteP1 !== null ? remoteP1 : prev.player1.score },
+                player2: { ...prev.player2, score: remoteP2 !== null ? remoteP2 : prev.player2.score },
+                gameStarted: prev.gameStarted,
+                lastUpdateTime: prev.lastUpdateTime
+              } as PongGameState;
+              
               if (next.player1.score !== next.player2.score && (next.player1.score >= WINNING_SCORE || next.player2.score >= WINNING_SCORE)) {
                 next.gameOver = true;
                 next.winner = next.player1.score > next.player2.score ? 'player1' : 'player2';
+                if (onGameEnd) onGameEnd(next.winner);
               }
               return next;
             });
@@ -133,15 +161,22 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
       mounted = false;
       clearInterval(id);
     };
-  }, [assignedRoomId]);
+  }, [assignedRoomId, singlePlayer]);
+
+  // Auto-start game in single-player mode
+  useEffect(() => {
+    if (singlePlayer && !localGameState.gameStarted) {
+      setLocalGameState(prev => ({ ...prev, gameStarted: true }));
+    }
+  }, [singlePlayer, localGameState.gameStarted]);
 
   const resetBall = useCallback((direction: number): PongGameState['ball'] => {
     const timeBasedDirection = typeof window !== 'undefined' ? (Date.now() % 2 === 0 ? 1 : -1) : 1;
     return {
       x: CANVAS_WIDTH / 2,
       y: CANVAS_HEIGHT / 2,
-      speedX: 2.67 * direction,
-      speedY: 2.67 * timeBasedDirection,
+      speedX: 4.5 * direction,
+      speedY: 4.5 * timeBasedDirection,
     };
   }, []);
 
@@ -187,7 +222,15 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
       newState.ball.y - BALL_RADIUS < player1Paddle.y + player1Paddle.height &&
       newState.ball.y + BALL_RADIUS > player1Paddle.y
     ) {
-      newState.ball.speedX = Math.abs(newState.ball.speedX) * 1.05;
+      // Accelerate ball on hit - both X and Y speeds increase
+      const accelerationFactor = 1.15;
+      newState.ball.speedX = Math.abs(newState.ball.speedX) * accelerationFactor;
+      newState.ball.speedY = newState.ball.speedY * accelerationFactor;
+      
+      // Add some randomization to the Y direction based on where ball hits paddle
+      const paddleCenter = player1Paddle.y + PADDLE_HEIGHT / 2;
+      const hitOffset = (newState.ball.y - paddleCenter) / (PADDLE_HEIGHT / 2);
+      newState.ball.speedY += hitOffset * 0.5;
     }
 
     // Collision with player2 paddle
@@ -197,7 +240,15 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
       newState.ball.y - BALL_RADIUS < player2Paddle.y + player2Paddle.height &&
       newState.ball.y + BALL_RADIUS > player2Paddle.y
     ) {
-      newState.ball.speedX = -Math.abs(newState.ball.speedX) * 1.05;
+      // Accelerate ball on hit - both X and Y speeds increase
+      const accelerationFactor = 1.15;
+      newState.ball.speedX = -Math.abs(newState.ball.speedX) * accelerationFactor;
+      newState.ball.speedY = newState.ball.speedY * accelerationFactor;
+      
+      // Add some randomization to the Y direction based on where ball hits paddle
+      const paddleCenter = player2Paddle.y + PADDLE_HEIGHT / 2;
+      const hitOffset = (newState.ball.y - paddleCenter) / (PADDLE_HEIGHT / 2);
+      newState.ball.speedY += hitOffset * 0.5;
     }
 
     // Scoring
@@ -213,9 +264,11 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     if (newState.player1.score >= WINNING_SCORE) {
       newState.gameOver = true;
       newState.winner = 'player1';
+      if (onGameEnd) onGameEnd('player1');
     } else if (newState.player2.score >= WINNING_SCORE) {
       newState.gameOver = true;
       newState.winner = 'player2';
+      if (onGameEnd) onGameEnd('player2');
     }
 
     // Basic AI: if user is player1, AI controls player2; otherwise reverse
@@ -230,7 +283,7 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     }
 
     setLocalGameState(newState);
-  }, [assignedPlayerId, resetBall, assignedRoomId, initialPlayerId, initialRoomId]);
+  }, [assignedPlayerId, resetBall, initialPlayerId, onGameEnd]);
 
   // Pointer handlers
   const handlePointerMove = useCallback(
@@ -341,7 +394,7 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     return () => {
       if (tickId) clearTimeout(tickId);
     };
-  }, [assignedPlayerId, initialPlayerId, updateGame]);
+  }, [updateGame]);
 
   // Keep local ref in sync when we receive remote state
   useEffect(() => {
@@ -376,7 +429,7 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
       />
 
       <div className="text-center space-y-2 px-2">
-        {!localGameState.gameStarted && (
+        {!singlePlayer && !localGameState.gameStarted && (
           <div className="space-y-2">
             {!isReady ? (
               <Button onClick={markReady} className="px-4 py-2 md:px-6">Ready</Button>
@@ -394,3 +447,6 @@ export function PongGame({ roomId: initialRoomId = '', playerId: initialPlayerId
     </div>
   );
 }
+
+// Memoize PongGame to prevent unnecessary re-renders from parent components
+export const PongGame = React.memo(PongGameComponent);
