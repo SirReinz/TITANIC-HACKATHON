@@ -5,6 +5,8 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,11 +20,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppLogo } from "../icons";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
-  username: z.string().min(2, {
-    message: "Username must be at least 2 characters.",
-  }),
+  email: z.string().email({ message: "Please enter a valid email." }),
   password: z.string().min(6, {
     message: "Password must be at least 6 characters.",
   }),
@@ -30,19 +31,27 @@ const formSchema = z.object({
 
 export function LoginForm() {
   const router = useRouter();
+  const { toast } = useToast();
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    // NOTE: This is a mock login.
-    // In a real application, you would handle authentication here.
-    console.log(values);
-    router.push("/");
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    try {
+      await signInWithEmailAndPassword(auth, values.email, values.password);
+      router.push("/");
+    } catch (error) {
+      console.error("Login error", error);
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: "Please check your email and password and try again.",
+      });
+    }
   }
 
   return (
@@ -59,12 +68,12 @@ export function LoginForm() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="username"
+              name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Username</FormLabel>
+                  <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input placeholder="your_username" {...field} />
+                    <Input placeholder="you@example.com" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
