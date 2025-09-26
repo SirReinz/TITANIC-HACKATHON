@@ -29,7 +29,7 @@ export default function GamePage() {
     return (
       <main className="relative h-screen w-screen overflow-hidden bg-green-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-800 mb-4">Campus Clash</div>
+          <div className="text-2xl font-bold text-green-800 mb-4">TITANIC</div>
           <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <div className="text-green-600 mt-2">Loading...</div>
         </div>

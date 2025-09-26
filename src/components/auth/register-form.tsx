@@ -85,7 +85,7 @@ export function RegisterForm() {
           <AppLogo className="h-10 w-10 text-primary" />
         </div>
         <CardTitle className="text-2xl font-headline">Create an Account</CardTitle>
-        <CardDescription>Join Campus Clash and represent your university.</CardDescription>
+        <CardDescription>Join TITANIC Clash and represent your university.</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>

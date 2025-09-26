@@ -157,7 +157,7 @@ export function LeaderboardSheet({ open, onOpenChange }: LeaderboardSheetProps) 
         <SheetHeader className="p-6 pb-2">
           <SheetTitle className="font-headline text-2xl">Leaderboards</SheetTitle>
           <SheetDescription>
-            See who's dominating the campus and the world.
+            See who's dominating the TITANIC and the world.
           </SheetDescription>
         </SheetHeader>
         <div className="p-6">

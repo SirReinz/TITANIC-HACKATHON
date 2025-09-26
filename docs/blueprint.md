@@ -1,4 +1,4 @@
-# **App Name**: Campus Clash
+# **App Name**: TITANIC
 
 ## Core Features:
 

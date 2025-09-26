@@ -1,18 +1,17 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { BarChart2, MessageSquare, Settings, Swords, LocateFixed, QrCode } from 'lucide-react';
 import { LeaderboardSheet } from './new-leaderboard-sheet';
 import { SettingsSheet } from './settings-sheet';
-import { ChatSheet } from './chat-sheet';
+import { MongoChatSheet } from './mongo-chat-sheet';
 import { BattleDialog } from './battle-dialog';
 import { QRBattleSystem } from './qr-battle-system';
 import { BattleManager } from './battle-manager';
 import InteractiveMap from './interactive-map';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { doc, setDoc, serverTimestamp, GeoPoint } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { User, onAuthStateChanged } from 'firebase/auth';
 
@@ -33,16 +32,98 @@ export default function GameUI() {
   const [showMockLocationDialog, setShowMockLocationDialog] = useState(false);
   const [mockLat, setMockLat] = useState('');
   const [mockLng, setMockLng] = useState('');
+  const [isOnline, setIsOnline] = useState(false);
+  const locationUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast(); 
+
+  // Simple function to just update location - NO nearby player fetching
+  const updateLocationOnly = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      console.log("No Firebase user - skipping location update");
+      return;
+    }
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const latitude = position.coords.latitude;
+          const longitude = position.coords.longitude;
+          console.log(`🌍 Auto-updating location ONLY: ${latitude}, ${longitude}`);
+          
+          try {
+            // Get user data from MongoDB
+            let userData = {
+              username: user.displayName || 'Anonymous',
+              university: 'Unknown University',
+              wins: 0,
+              losses: 0
+            };
+            
+            try {
+              const userResponse = await fetch(`/api/mongo/users?uid=${user.uid}`);
+              if (userResponse.ok) {
+                const userDataResult = await userResponse.json();
+                if (userDataResult.success && userDataResult.user) {
+                  userData = {
+                    username: userDataResult.user.username || user.displayName || 'Anonymous',
+                    university: userDataResult.user.university || 'Unknown University',
+                    wins: userDataResult.user.wins || 0,
+                    losses: userDataResult.user.losses || 0
+                  };
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching user data from MongoDB:', error);
+            }
+
+            // Save location to MongoDB - ONLY location update, no nearby player fetch
+            const response = await fetch('/api/mongo/locations', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                uid: user.uid,
+                username: userData.username || 'Anonymous Player',
+                university: userData.university || 'Unknown University',
+                latitude: latitude,
+                longitude: longitude,
+                wins: userData.wins || 0,
+                losses: userData.losses || 0,
+              }),
+            });
+            
+            if (response.ok) {
+              console.log("✅ Location updated successfully to MongoDB");
+              setCurrentLocation({ latitude, longitude });
+              setIsOnline(true);
+            } else {
+              setIsOnline(false);
+            }
+          } catch (error) {
+            console.error("Error updating location:", error);
+            setIsOnline(false);
+          }
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+          setIsOnline(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 30000 // Cache for 30 seconds
+        }
+      );
+    }
+  };
 
   const updateLocation = (forceUpdate = false) => {
     const user = auth.currentUser;
     if (!user) {
-      toast({
-        variant: "destructive",
-        title: "Authentication Required",
-        description: "Please log in to share your location.",
-      });
+      // Skip location update silently for MongoDB-only mode
+      console.log("No Firebase user - skipping location update");
       return;
     }
 
@@ -74,33 +155,71 @@ export default function GameUI() {
           try {
             console.log(`Saving location for user ${user.uid}:`, { latitude, longitude });
             
-            // Get the username from Firestore users collection
-            let username = user.displayName || 'Anonymous';
+            // Get the complete user data from MongoDB users collection
+            let userData = {
+              username: user.displayName || 'Anonymous',
+              university: 'Unknown University',
+              wins: 0,
+              losses: 0
+            };
+            
             try {
-              const { getDoc, doc: firestoreDoc } = await import('firebase/firestore');
-              const userDoc = await getDoc(firestoreDoc(db, 'users', user.uid));
-              if (userDoc.exists()) {
-                const userData = userDoc.data();
-                username = userData.username || user.displayName || 'Anonymous';
+              const userResponse = await fetch(`/api/mongo/users?uid=${user.uid}`);
+              if (userResponse.ok) {
+                const userDataResult = await userResponse.json();
+                if (userDataResult.success && userDataResult.user) {
+                  userData = {
+                    username: userDataResult.user.username || user.displayName || 'Anonymous',
+                    university: userDataResult.user.university || 'Unknown University',
+                    wins: userDataResult.user.wins || 0,
+                    losses: userDataResult.user.losses || 0
+                  };
+                }
               }
             } catch (error) {
-              console.error('Error fetching user data:', error);
+              console.error('Error fetching user data from MongoDB:', error);
             }
             
-            const userLocationRef = doc(db, 'locations', user.uid);
-            await setDoc(userLocationRef, {
-              location: new GeoPoint(latitude, longitude),
-              timestamp: serverTimestamp(),
-              userId: user.uid,
-              username: username,
-            }, { merge: true });
+            // Save location to MongoDB only
+            try {
+              const response = await fetch('/api/mongo/locations', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  uid: user.uid,
+                  username: userData.username || 'Anonymous Player',
+                  university: userData.university || 'Unknown University',
+                  latitude: latitude,
+                  longitude: longitude,
+                  wins: userData.wins || 0,
+                  losses: userData.losses || 0,
+                }),
+              });
+              
+              if (response.ok) {
+                console.log("Location saved successfully to MongoDB");
+                setIsOnline(true);
+                toast({
+                  title: "Location Updated!",
+                  description: "Your location has been shared successfully.",
+                });
+              } else {
+                setIsOnline(false);
+                throw new Error('MongoDB save failed');
+              }
+            } catch (mongoError) {
+              console.error("MongoDB location save error:", mongoError);
+              setIsOnline(false);
+              toast({
+                title: "Location Update Failed",
+                description: "Failed to share location. Please try again.",
+                variant: "destructive"
+              });
+            }
             
-            console.log("Location saved successfully to Firestore");
-            setCurrentLocation({ latitude, longitude }); // Update local state
-            toast({
-              title: "Location Updated!",
-              description: "Your location has been shared successfully.",
-            });
+            setCurrentLocation({ latitude, longitude }); // Always update local state
           } catch (error) {
             console.error("Error updating location:", error);
             const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
@@ -174,34 +293,36 @@ export default function GameUI() {
     }
   };
 
-  // Function to fetch user profile data
+  // Function to fetch user profile data from MongoDB
   const fetchUserProfile = async (user: User) => {
     console.log('Fetching user profile for:', user.uid);
     try {
-      const { getDoc, doc: firestoreDoc } = await import('firebase/firestore');
-      const userDoc = await getDoc(firestoreDoc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        console.log('User data from Firestore:', userData);
-        const profile = {
-          username: userData.username || user.displayName || 'Anonymous',
-          email: user.email || '',
-          university: userData.university || ''
-        };
-        console.log('Setting profile:', profile);
-        setCurrentUserProfile(profile);
-      } else {
-        console.log('User document does not exist in Firestore');
-        const profile = {
-          username: user.displayName || 'Anonymous',
-          email: user.email || '',
-          university: ''
-        };
-        console.log('Setting fallback profile:', profile);
-        setCurrentUserProfile(profile);
+      const userResponse = await fetch(`/api/mongo/users?uid=${user.uid}`);
+      if (userResponse.ok) {
+        const userDataResult = await userResponse.json();
+        if (userDataResult.success && userDataResult.user) {
+          const userData = userDataResult.user;
+          console.log('User data from MongoDB:', userData);
+          const profile = {
+            username: userData.username || user.displayName || 'Anonymous',
+            email: user.email || '',
+            university: userData.university || ''
+          };
+          console.log('Setting profile:', profile);
+          setCurrentUserProfile(profile);
+        } else {
+          console.log('User document does not exist in MongoDB');
+          const profile = {
+            username: user.displayName || 'Anonymous',
+            email: user.email || '',
+            university: ''
+          };
+          console.log('Setting fallback profile:', profile);
+          setCurrentUserProfile(profile);
+        }
       }
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.error('Error fetching user profile from MongoDB:', error);
       const profile = {
         username: user.displayName || 'Anonymous',
         email: user.email || '',
@@ -220,28 +341,64 @@ export default function GameUI() {
     try {
       console.log(`Setting mock location for user ${user.uid}:`, { lat, lng });
       
-      // Get the username from Firestore users collection
-      let username = user.displayName || 'Anonymous';
+      // Get the complete user data from MongoDB users collection
+      let userData = {
+        username: user.displayName || 'Anonymous',
+        university: 'Unknown University',
+        wins: 0,
+        losses: 0
+      };
+      
       try {
-        const { getDoc, doc: firestoreDoc } = await import('firebase/firestore');
-        const userDoc = await getDoc(firestoreDoc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          username = userData.username || user.displayName || 'Anonymous';
+        const userResponse = await fetch(`/api/mongo/users?uid=${user.uid}`);
+        if (userResponse.ok) {
+          const userDataResult = await userResponse.json();
+          if (userDataResult.success && userDataResult.user) {
+            const dbUserData = userDataResult.user;
+            userData = {
+              username: dbUserData.username || user.displayName || 'Anonymous',
+              university: dbUserData.university || 'Unknown University',
+              wins: dbUserData.wins || 0,
+              losses: dbUserData.losses || 0
+            };
+          }
         }
       } catch (error) {
-        console.error('Error fetching user data:', error);
+        console.error('Error fetching user data from MongoDB:', error);
       }
       
-      const userLocationRef = doc(db, 'locations', user.uid);
-      await setDoc(userLocationRef, {
-        location: new GeoPoint(lat, lng),
-        timestamp: serverTimestamp(),
-        userId: user.uid,
-        username: username,
-      }, { merge: true });
-      
-      console.log("Mock location saved successfully to Firestore");
+      // Save mock location to MongoDB only
+      try {
+        const response = await fetch('/api/mongo/locations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            uid: user.uid,
+            username: userData.username || 'Anonymous Player',
+            university: userData.university || 'Unknown University',
+            latitude: lat,
+            longitude: lng,
+            wins: userData.wins || 0,
+            losses: userData.losses || 0,
+          }),
+        });
+        
+        if (response.ok) {
+          console.log("Mock location saved successfully to MongoDB");
+        } else {
+          throw new Error('MongoDB save failed');
+        }
+      } catch (mongoError) {
+        console.error("MongoDB mock location save error:", mongoError);
+        toast({
+          title: "Mock Location Failed",
+          description: "Failed to save mock location. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
       setCurrentLocation({ latitude: lat, longitude: lng });
       setShowMockLocationDialog(false);
       toast({
@@ -258,27 +415,22 @@ export default function GameUI() {
     }
   };
 
-  // Function to clean up user data when exiting the app
+  // Function to clean up user data when exiting the app (MongoDB)
   const cleanupUserData = async () => {
     const user = auth.currentUser;
     if (!user) return;
 
     try {
-      const { deleteDoc, doc } = await import('firebase/firestore');
+      // Remove user's location data from MongoDB
+      const response = await fetch(`/api/mongo/locations?uid=${user.uid}`, {
+        method: 'DELETE',
+      });
       
-      // Remove user's location data
-      const userLocationRef = doc(db, 'locations', user.uid);
-      
-      // Use a timeout to ensure cleanup doesn't hang
-      const cleanupPromise = deleteDoc(userLocationRef);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Cleanup timeout')), 3000)
-      );
-      
-      await Promise.race([cleanupPromise, timeoutPromise]);
-      console.log('User location data cleaned up successfully');
+      if (response.ok) {
+        console.log('User location data cleaned up successfully from MongoDB');
+      }
     } catch (error) {
-      console.error('Error cleaning up user data:', error);
+      console.error('Error cleaning up user data from MongoDB:', error);
       // Don't block the exit process on cleanup errors
     }
   };
@@ -294,31 +446,49 @@ export default function GameUI() {
       setCurrentUser(user);
       if (user) {
         fetchUserProfile(user);
+        
+        // Start automatic location updates every 5 seconds (LOCATION ONLY - no nearby players)
+        if (locationUpdateInterval.current) {
+          clearInterval(locationUpdateInterval.current);
+        }
+        
+        console.log('🔧 Setting up location update interval (5s) - LOCATION ONLY');
+        locationUpdateInterval.current = setInterval(() => {
+          console.log('🌍 Auto-updating location ONLY...');
+          updateLocationOnly();
+        }, 5000); // Every 5 seconds for location updates only
+        
       } else {
         setCurrentUserProfile(null);
         setCurrentLocation(null);
+        setNearbyPlayers([]);
+        
+        // Clear location update interval when user logs out
+        if (locationUpdateInterval.current) {
+          clearInterval(locationUpdateInterval.current);
+          locationUpdateInterval.current = null;
+        }
       }
     });
 
     const user = auth.currentUser;
     if (user) {
-      // First try to get stored location from database
+      // First try to get stored location from MongoDB
       const fetchStoredLocation = async () => {
         try {
-          const { getDoc, doc } = await import('firebase/firestore');
-          const userLocationDoc = await getDoc(doc(db, 'locations', user.uid));
-          if (userLocationDoc.exists()) {
-            const data = userLocationDoc.data();
-            if (data.location && data.location.latitude && data.location.longitude) {
+          const response = await fetch(`/api/mongo/locations?uid=${user.uid}`);
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.location && result.location.latitude && result.location.longitude) {
               setCurrentLocation({
-                latitude: data.location.latitude,
-                longitude: data.location.longitude
+                latitude: result.location.latitude,
+                longitude: result.location.longitude
               });
               return; // Don't update location if we have stored data
             }
           }
         } catch (error) {
-          console.error('Error fetching stored location:', error);
+          console.error('Error fetching stored location from MongoDB:', error);
         }
         
         // If no stored location, just wait for user to manually enable location
@@ -361,11 +531,24 @@ export default function GameUI() {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('pagehide', handlePageHide);
         
+        // Clear location update interval
+        if (locationUpdateInterval.current) {
+          clearInterval(locationUpdateInterval.current);
+          locationUpdateInterval.current = null;
+        }
+        
         // Final cleanup when component unmounts
         cleanupUserData();
       };
     } else {
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+        // Clear location update interval
+        if (locationUpdateInterval.current) {
+          clearInterval(locationUpdateInterval.current);
+          locationUpdateInterval.current = null;
+        }
+      };
     }
   }, []);
 
@@ -609,11 +792,11 @@ export default function GameUI() {
 
       <LeaderboardSheet open={leaderboardOpen} onOpenChange={setLeaderboardOpen} />
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <ChatSheet 
+      <MongoChatSheet 
         open={chatOpen} 
         onOpenChange={setChatOpen}
         selectedPlayer={chatPlayer}
-        nearbyPlayers={nearbyPlayers}
+        currentLocation={currentLocation}
       />
       <BattleDialog open={battleDialogOpen} onOpenChange={setBattleDialogOpen} />
       
@@ -645,6 +828,20 @@ export default function GameUI() {
           opponentName={activeBattle.opponentName}
         />
       )}
+
+      {/* Online/Offline Status Indicator */}
+      <div className="fixed bottom-4 right-4 z-50">
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium shadow-lg backdrop-blur-sm ${
+          isOnline 
+            ? 'bg-green-500/90 text-white' 
+            : 'bg-red-500/90 text-white'
+        }`}>
+          <div className={`w-2 h-2 rounded-full ${
+            isOnline ? 'bg-green-200' : 'bg-red-200'
+          }`} />
+          {isOnline ? 'Online' : 'Offline'}
+        </div>
+      </div>
     </>
   );
 }

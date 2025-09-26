@@ -4,7 +4,7 @@ import './leaflet.css';
 import { Toaster } from '@/components/ui/toaster';
 
 export const metadata: Metadata = {
-  title: 'Campus Clash',
+  title: 'TITANIC Clash',
   description: 'A location-based battle game.',
 };
 

@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { LatLngExpression, Map as LeafletMap } from 'leaflet';
-import { auth, db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp, GeoPoint, getDoc, getDocs } from 'firebase/firestore';
+import { auth } from '@/lib/firebase';
 import { User as UserIcon, Sun, Moon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -66,6 +65,7 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
   const [userLocationLoaded, setUserLocationLoaded] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const mapRef = useRef<LeafletMap>(null);
+  const playersIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
   // Create custom icon for users
@@ -108,25 +108,24 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
     });
   };
 
-  // Fetch user's stored location from database on component mount
+  // Fetch user's stored location from MongoDB on component mount
   useEffect(() => {
     const fetchUserLocation = async () => {
       const user = auth.currentUser;
       if (!user) return;
 
       try {
-        const userLocationDoc = await getDoc(doc(db, 'locations', user.uid));
-        if (userLocationDoc.exists()) {
-          const data = userLocationDoc.data();
-          if (data.location && data.location.latitude && data.location.longitude) {
+        // Fetch user location from MongoDB
+        const response = await fetch(`/api/mongo/locations?uid=${user.uid}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.location && result.location.latitude && result.location.longitude) {
             const storedLocation = {
-              latitude: data.location.latitude,
-              longitude: data.location.longitude
+              latitude: result.location.latitude,
+              longitude: result.location.longitude
             };
             setMapCenter([storedLocation.latitude, storedLocation.longitude]);
             setUserLocationLoaded(true);
-            
-            // Location will be loaded from database by the parent component
             
             toast({
               title: "Location Loaded",
@@ -153,75 +152,115 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
     }
   }, [currentLocation]);
 
-  // Listen for nearby players - THROTTLED to every 30 seconds
+  // Manual load function for nearby players - NO AUTOMATIC INTERVALS
+  const loadNearbyPlayers = async () => {
+    if (!currentLocation) return;
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      console.log(`🗺️ Manual fetch of nearby players at: ${currentLocation.latitude}, ${currentLocation.longitude}`);
+
+      // Fetch nearby players from MongoDB
+      const response = await fetch(
+        `/api/mongo/locations?lat=${currentLocation.latitude}&lng=${currentLocation.longitude}&radius=5&currentUserId=${currentUser.uid}`
+      );
+      
+      if (!response.ok) {
+        console.error('Failed to fetch nearby players from MongoDB');
+        return;
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        console.error('MongoDB API returned error:', data.error);
+        return;
+      }
+
+      const nearbyPlayers: PlayerLocation[] = data.players.map((player: any) => ({
+        id: player.uid,
+        username: player.username,
+        university: player.university || 'Unknown University',
+        location: {
+          latitude: player.latitude,
+          longitude: player.longitude
+        },
+        timestamp: new Date(player.timestamp),
+        wins: player.wins || 0,
+        losses: player.losses || 0
+      }));
+
+      console.log(`Found ${nearbyPlayers.length} nearby players from MongoDB`);
+      setPlayers(nearbyPlayers);
+      
+      // Filter players within messaging range (100m) and notify parent component
+      const messagingRangePlayers = nearbyPlayers.filter(player => {
+        const distance = calculateDistance(
+          currentLocation.latitude,
+          currentLocation.longitude,
+          player.location.latitude,
+          player.location.longitude
+        );
+        return distance <= 100;
+      });
+      
+      console.log(`Players in messaging range (100m): ${messagingRangePlayers.length}`);
+      onNearbyPlayersChange?.(messagingRangePlayers);
+    } catch (error) {
+      console.error("Error loading nearby players:", error);
+    }
+  };
+
+  // Track previous location to only load players when location ACTUALLY changes significantly
+  const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  
+  useEffect(() => {
+    if (!currentLocation) return;
+    
+    // Only load nearby players if location changed significantly (more than 10 meters)
+    const hasLocationChangedSignificantly = !prevLocationRef.current || 
+      calculateDistance(
+        prevLocationRef.current.latitude,
+        prevLocationRef.current.longitude,
+        currentLocation.latitude,
+        currentLocation.longitude
+      ) > 10; // 10 meter threshold
+      
+    if (hasLocationChangedSignificantly) {
+      console.log('📍 Location changed significantly - loading nearby players');
+      loadNearbyPlayers();
+      prevLocationRef.current = currentLocation;
+    } else {
+      console.log('📍 Location update too small - skipping nearby player refresh');
+    }
+  }, [currentLocation]);
+
+  // Auto-refresh nearby players every 20 seconds
   useEffect(() => {
     if (!currentLocation) return;
 
-    const loadNearbyPlayers = async () => {
-      try {
-        const snapshot = await getDocs(collection(db, 'locations'));
-        const nearbyPlayers: PlayerLocation[] = [];
-        const currentUser = auth.currentUser;
+    // Clear any existing interval first
+    if (playersIntervalRef.current) {
+      clearInterval(playersIntervalRef.current);
+      playersIntervalRef.current = null;
+    }
 
-        snapshot.forEach((doc: any) => {
-          const data = doc.data();
-          if (doc.id === currentUser?.uid) return; // Skip current user
-
-          if (data.location && data.location.latitude && data.location.longitude) {
-            const distance = calculateDistance(
-              currentLocation.latitude,
-              currentLocation.longitude,
-              data.location.latitude,
-              data.location.longitude
-            );
-
-            // Show players within 1km for now (you can adjust this)
-            if (distance <= 1000) {
-              nearbyPlayers.push({
-                id: doc.id,
-                username: data.username || 'Anonymous',
-                university: data.university || 'Unknown',
-                location: {
-                  latitude: data.location.latitude,
-                  longitude: data.location.longitude,
-                },
-                timestamp: data.timestamp,
-                wins: data.wins || 0,
-                losses: data.losses || 0,
-              });
-            }
-          }
-        });
-
-        setPlayers(nearbyPlayers);
-        
-        // Filter players within messaging range (100m) and notify parent component
-        const messagingRangePlayers = nearbyPlayers.filter(player => {
-          const distance = calculateDistance(
-            currentLocation.latitude,
-            currentLocation.longitude,
-            player.location.latitude,
-            player.location.longitude
-          );
-          return distance <= 100;
-        });
-        
-        onNearbyPlayersChange?.(messagingRangePlayers);
-      } catch (error) {
-        console.error("Error loading nearby players:", error);
-      }
-    };
-
-    // Load initially
-    loadNearbyPlayers();
-
-    // Then refresh every 30 seconds instead of real-time
-    const intervalId = setInterval(loadNearbyPlayers, 30000);
+    // Set up 20-second interval for nearby player refresh
+    console.log('👥 Setting up nearby players auto-refresh (10s)');
+    playersIntervalRef.current = setInterval(() => {
+      console.log('👥 Auto-refreshing nearby players...');
+      loadNearbyPlayers();
+    }, 10000); // 20 seconds
 
     return () => {
-      clearInterval(intervalId);
+      if (playersIntervalRef.current) {
+        console.log('👥 Cleaning up nearby players interval');
+        clearInterval(playersIntervalRef.current);
+        playersIntervalRef.current = null;
+      }
     };
-  }, [currentLocation, onNearbyPlayersChange]);
+  }, [currentLocation ? true : false]); // Only depend on whether location exists, not the actual location value
 
   // Calculate distance between two coordinates in meters
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -290,13 +329,14 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
     if (!user) return;
 
     try {
-      const userLocationDoc = await getDoc(doc(db, 'locations', user.uid));
-      if (userLocationDoc.exists()) {
-        const data = userLocationDoc.data();
-        if (data.location && data.location.latitude && data.location.longitude) {
+      // Fetch user location from MongoDB
+      const response = await fetch(`/api/mongo/locations?uid=${user.uid}`);
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.location && result.location.latitude && result.location.longitude) {
           const storedLocation = {
-            latitude: data.location.latitude,
-            longitude: data.location.longitude
+            latitude: result.location.latitude,
+            longitude: result.location.longitude
           };
           setMapCenter([storedLocation.latitude, storedLocation.longitude]);
           
@@ -379,17 +419,26 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
                 {userLocationLoaded ? 'Location Found' : 'Searching...'}
               </span>
             </div>
-            <button
-              onClick={refreshLocationFromDatabase}
-              className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50 transition-colors"
-              title="Refresh location from database"
-            >
-              ↻
-            </button>
+            <div className="flex gap-1">
+              <button
+                onClick={refreshLocationFromDatabase}
+                className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                title="Refresh location from database"
+              >
+                📍
+              </button>
+              <button
+                onClick={loadNearbyPlayers}
+                className="text-green-600 hover:text-green-800 text-xs px-2 py-1 rounded hover:bg-green-50 transition-colors"
+                title="Refresh nearby players"
+              >
+                👥
+              </button>
+            </div>
           </div>
           {currentLocation && (
             <div className="text-xs text-gray-600 mt-1">
-              {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)}
+              {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)} | Players: {players.length}
             </div>
           )}
         </div>
