@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Race</title>
+    <!-- Google Font: Exo 2 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Prevents unwanted text selection while dragging */
+        body {
+            user-select: none;
+            font-family: 'Exo 2', sans-serif;
+        }
+        /* Custom style for the modal to be hidden by default */
+        #modal {
+            display: none;
+        }
+        /* Custom styling for ships and asteroids */
+        .ship {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #4a5568;
+            border-radius: 50% 50% 10% 10%;
+        }
+        .ship::after { /* Engine Glow */
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 15px 5px currentColor;
+        }
+        .player-ship { color: #60a5fa; border: 2px solid #60a5fa; }
+        .ai-ship { color: #f87171; border: 2px solid #f87171; }
+        
+        .asteroid { 
+            position: absolute;
+            background-color: #a16207; 
+            border: 2px solid #ca8a04; 
+            box-shadow: 0 0 10px #ca8a04; 
+        }
+        .hunter-asteroid {
+            background-color: #7e22ce;
+            border-color: #a855f7;
+            box-shadow: 0 0 15px #a855f7;
+        }
+
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+        }
+        .flash {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%);
+            border-radius: 50%;
+            transform: scale(0);
+            animation: flash-anim 0.4s ease-out;
+        }
+        @keyframes flash-anim {
+            from { transform: scale(0); opacity: 1; }
+            to { transform: scale(2); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-900 text-white p-4 flex items-center justify-center">
+
+    <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-3xl">
+        
+        <!-- Header -->
+        <h1 class="text-4xl font-bold text-center mb-4 text-cyan-400">SPACE RACE</h1>
+        <p id="game-message" class="text-center mb-6 text-lg">Click Start to begin the race!</p>
+
+        <!-- Controls -->
+        <div class="bg-gray-700 p-4 rounded mb-6 flex justify-center items-center gap-4">
+            <button id="start-button" class="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-500 rounded font-bold shadow-lg hover:shadow-xl transition-all duration-200">
+                START GAME
+            </button>
+        </div>
+
+        <!-- Game Area -->
+        <div id="game-area" class="relative h-96 bg-black border-4 border-cyan-400 rounded mb-4 overflow-hidden cursor-pointer" style="touch-action: none;">
+            <canvas id="starfield-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+            <!-- Ships and asteroids will be inserted here by JavaScript -->
+        </div>
+
+        <!-- Stats -->
+        <div class="flex justify-center items-center text-xl font-bold">
+            <div id="score-display" class="bg-purple-600 px-4 py-2 rounded">Score: 0</div>
+        </div>
+
+        <!-- Modal -->
+        <div id="modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-gray-800 p-8 rounded-lg text-center border-2 border-cyan-400 shadow-2xl">
+                <h2 class="text-3xl font-bold mb-2">Game Over!</h2>
+                <h3 id="modal-message" class="text-xl font-bold mb-4"></h3>
+                <button id="play-again-button" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded font-bold text-lg shadow-lg hover:shadow-xl transition-all duration-200">
+                    Play Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Link to the JavaScript file -->
+    <script src="game.js"></script>
+</body>
+</html>

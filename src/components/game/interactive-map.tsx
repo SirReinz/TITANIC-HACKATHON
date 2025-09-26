@@ -449,25 +449,25 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
         <div className="absolute bottom-32 right-4 z-10 flex gap-2">
           <Button
             onClick={() => setIsDarkMode(!isDarkMode)}
-            size="sm"
+            size="icon"
             variant="outline"
-            className="bg-white/90 backdrop-blur-sm hover:bg-white/100 shadow-lg"
+            className="bg-white/90 backdrop-blur-sm hover:bg-white/100 shadow-lg h-12 w-12"
             title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
             {isDarkMode ? (
-              <Sun className="h-4 w-4" />
+              <Sun className="h-6 w-6" />
             ) : (
-              <Moon className="h-4 w-4" />
+              <Moon className="h-6 w-6" />
             )}
           </Button>
           <button
             onClick={returnToUserLocation}
-            className="bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg hover:bg-white transition-colors"
+            className="bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg hover:bg-white transition-colors h-12 w-12 flex items-center justify-center"
             title="Return to your location"
           >
             <svg
-              width="20"
-              height="20"
+              width="24"
+              height="24"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -517,7 +517,7 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
         scrollWheelZoom={true}
         boxZoom={true}
         keyboard={true}
-        zoomControl={true}
+        zoomControl={false}
         attributionControl={true}
       >
         {/* Map tile layer with theme support */}
