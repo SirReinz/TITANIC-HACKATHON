@@ -89,12 +89,12 @@ body {
 
 /* Leaflet map styles */
 .grayscale-map {
-  filter: grayscale(80%) contrast(2.5) brightness(0.95) saturate(0.7);
+  filter: grayscale(60%) contrast(3) brightness(1) saturate(1);
   transition: filter 0.3s ease;
 }
 
 .dark-map {
-  filter: invert(1) hue-rotate(180deg) brightness(0.7) contrast(1.3) saturate(0.8);
+  filter: invert(1) hue-rotate(180deg) brightness(1) contrast(1.2) saturate(0.5);
   transition: filter 0.3s ease;
 }
 

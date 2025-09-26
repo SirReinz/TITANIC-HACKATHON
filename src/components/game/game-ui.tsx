@@ -510,7 +510,7 @@ export default function GameUI() {
         </div>
       )}
 
-      <div className="absolute top-20 left-4 flex flex-col gap-3 z-20">
+      <div className="absolute top-28 left-4 flex flex-col gap-3 z-20">
         <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild>
