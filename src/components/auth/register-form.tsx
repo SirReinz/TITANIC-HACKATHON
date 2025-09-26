@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppLogo } from "../icons";
 import { useToast } from "@/hooks/use-toast";
+import { FirebaseError } from "firebase/app";
 
 const formSchema = z.object({
   username: z.string().min(2, "Username must be at least 2 characters."),
@@ -61,10 +62,18 @@ export function RegisterForm() {
       router.push("/");
     } catch (error) {
       console.error("Registration error", error);
+      let title = "Registration Failed";
+      let description = "This email might already be in use. Please try another.";
+
+      if (error instanceof FirebaseError && error.code.includes('permission-denied')) {
+        title = "Database Error";
+        description = "User created, but failed to save profile. Check Firestore rules."
+      }
+
       toast({
         variant: "destructive",
-        title: "Registration Failed",
-        description: "This email might already be in use. Please try another.",
+        title: title,
+        description: description,
       });
     }
   }
