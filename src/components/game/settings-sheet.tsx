@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "../ui/button";
 import { Separator } from "../ui/separator";
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { useToast } from "@/hooks/use-toast";
 
 type SettingsSheetProps = {
   open: boolean;
@@ -19,11 +22,25 @@ type SettingsSheetProps = {
 
 export function SettingsSheet({ open, onOpenChange }: SettingsSheetProps) {
     const router = useRouter();
+    const { toast } = useToast();
 
-    const handleLogout = () => {
-        onOpenChange(false);
-        // Add any logout logic here
-        router.push('/login');
+    const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            onOpenChange(false);
+            router.push('/login');
+             toast({
+                title: "Logged Out",
+                description: "You have been successfully logged out.",
+            });
+        } catch (error) {
+            console.error("Logout error", error);
+            toast({
+                variant: "destructive",
+                title: "Logout Failed",
+                description: "Something went wrong. Please try again.",
+            });
+        }
     }
 
   return (
