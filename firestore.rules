@@ -1,20 +1,19 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can read all player locations for the map
-    match /locations/{userId} {
+    // Users can read all user profiles but only write to their own.
+    match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Users can read other user profiles, but only write to their own
-    match /users/{userId} {
+    // Authenticated users can see all player locations
+    // but can only create or update their own location.
+    match /locations/{userId} {
       allow read: if request.auth != null;
-      allow update: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
