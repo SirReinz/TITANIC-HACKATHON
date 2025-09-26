@@ -1,25 +1,98 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { BarChart2, MessageSquare, Settings, Swords } from 'lucide-react';
+import { BarChart2, MessageSquare, Settings, Swords, LocateFixed } from 'lucide-react';
 import { LeaderboardSheet } from './leaderboard-sheet';
 import { SettingsSheet } from './settings-sheet';
 import { ChatSheet } from './chat-sheet';
 import { BattleDialog } from './battle-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { doc, setDoc, serverTimestamp, GeoPoint } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+import { useToast } from '@/hooks/use-toast';
 
 export default function GameUI() {
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [battleDialogOpen, setBattleDialogOpen] = useState(false);
+  const { toast } = useToast();
 
   // This would be derived from real-time GPS data
   const isPlayerNearby = true; 
 
+  const updateLocation = () => {
+    if (!navigator.geolocation) {
+       toast({
+        variant: "destructive",
+        title: "Geolocation is not supported by your browser",
+      });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const { latitude, longitude } = position.coords;
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          const userLocationRef = doc(db, 'locations', user.uid);
+          await setDoc(userLocationRef, {
+            location: new GeoPoint(latitude, longitude),
+            timestamp: serverTimestamp(),
+            userId: user.uid,
+            username: user.displayName,
+          }, { merge: true });
+          toast({
+            title: "Location Updated!",
+            description: "Your location has been shared.",
+          });
+        } catch (error) {
+          console.error("Error updating location:", error);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Could not update your location.",
+          });
+        }
+      }
+    }, () => {
+       toast({
+        variant: "destructive",
+        title: "Unable to retrieve your location",
+      });
+    });
+  };
+
+  useEffect(() => {
+    // Update location once on component mount
+    updateLocation();
+    // And then every 5 minutes
+    const interval = setInterval(updateLocation, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <>
+      <div className="absolute top-4 left-4 flex flex-col gap-3">
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="secondary"
+                        size="icon"
+                        className="rounded-full w-14 h-14 shadow-lg"
+                        onClick={updateLocation}
+                        aria-label="Update Location"
+                    >
+                        <LocateFixed className="w-7 h-7" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right"><p>Share My Location</p></TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+      </div>
+
       <div className="absolute top-4 right-4 flex flex-col gap-3">
         <TooltipProvider>
             <Tooltip>
