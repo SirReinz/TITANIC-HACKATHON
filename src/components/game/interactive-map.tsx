@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { LatLngExpression, Map as LeafletMap } from 'leaflet';
 import { auth, db } from '@/lib/firebase';
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp, GeoPoint, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp, GeoPoint, getDoc, getDocs } from 'firebase/firestore';
 import { User as UserIcon, Sun, Moon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -54,11 +54,12 @@ interface InteractiveMapProps {
   currentLocation: { latitude: number; longitude: number } | null;
   onPlayerSelect?: (player: PlayerLocation) => void;
   onStartChat?: (player: PlayerLocation) => void;
+  onNearbyPlayersChange?: (players: PlayerLocation[]) => void;
 }
 
 
 
-export default function InteractiveMap({ currentLocation, onPlayerSelect, onStartChat }: InteractiveMapProps) {
+export default function InteractiveMap({ currentLocation, onPlayerSelect, onStartChat, onNearbyPlayersChange }: InteractiveMapProps) {
   const [players, setPlayers] = useState<PlayerLocation[]>([]);
   const [mapCenter, setMapCenter] = useState<LatLngExpression>([40.7128, -74.0060]); // Default to NYC
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -152,49 +153,75 @@ export default function InteractiveMap({ currentLocation, onPlayerSelect, onStar
     }
   }, [currentLocation]);
 
-  // Listen for nearby players
+  // Listen for nearby players - THROTTLED to every 30 seconds
   useEffect(() => {
     if (!currentLocation) return;
 
-    const unsubscribe = onSnapshot(collection(db, 'locations'), (snapshot) => {
-      const nearbyPlayers: PlayerLocation[] = [];
-      const currentUser = auth.currentUser;
+    const loadNearbyPlayers = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'locations'));
+        const nearbyPlayers: PlayerLocation[] = [];
+        const currentUser = auth.currentUser;
 
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (doc.id === currentUser?.uid) return; // Skip current user
+        snapshot.forEach((doc: any) => {
+          const data = doc.data();
+          if (doc.id === currentUser?.uid) return; // Skip current user
 
-        if (data.location && data.location.latitude && data.location.longitude) {
+          if (data.location && data.location.latitude && data.location.longitude) {
+            const distance = calculateDistance(
+              currentLocation.latitude,
+              currentLocation.longitude,
+              data.location.latitude,
+              data.location.longitude
+            );
+
+            // Show players within 1km for now (you can adjust this)
+            if (distance <= 1000) {
+              nearbyPlayers.push({
+                id: doc.id,
+                username: data.username || 'Anonymous',
+                university: data.university || 'Unknown',
+                location: {
+                  latitude: data.location.latitude,
+                  longitude: data.location.longitude,
+                },
+                timestamp: data.timestamp,
+                wins: data.wins || 0,
+                losses: data.losses || 0,
+              });
+            }
+          }
+        });
+
+        setPlayers(nearbyPlayers);
+        
+        // Filter players within messaging range (100m) and notify parent component
+        const messagingRangePlayers = nearbyPlayers.filter(player => {
           const distance = calculateDistance(
             currentLocation.latitude,
             currentLocation.longitude,
-            data.location.latitude,
-            data.location.longitude
+            player.location.latitude,
+            player.location.longitude
           );
+          return distance <= 100;
+        });
+        
+        onNearbyPlayersChange?.(messagingRangePlayers);
+      } catch (error) {
+        console.error("Error loading nearby players:", error);
+      }
+    };
 
-          // Show players within 1km for now (you can adjust this)
-          if (distance <= 1000) {
-            nearbyPlayers.push({
-              id: doc.id,
-              username: data.username || 'Anonymous',
-              university: data.university || 'Unknown',
-              location: {
-                latitude: data.location.latitude,
-                longitude: data.location.longitude,
-              },
-              timestamp: data.timestamp,
-              wins: data.wins || 0,
-              losses: data.losses || 0,
-            });
-          }
-        }
-      });
+    // Load initially
+    loadNearbyPlayers();
 
-      setPlayers(nearbyPlayers);
-    });
+    // Then refresh every 30 seconds instead of real-time
+    const intervalId = setInterval(loadNearbyPlayers, 30000);
 
-    return () => unsubscribe();
-  }, [currentLocation]);
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [currentLocation, onNearbyPlayersChange]);
 
   // Calculate distance between two coordinates in meters
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
