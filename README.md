@@ -6,3 +6,4 @@ cd .\TITANIC-HACKATHON\
 npm i --legacy-peer-deps
 npm run dev
 ```
+Youtube link:  https://www.youtube.com/watch?v=xSm01C7Tw9E
